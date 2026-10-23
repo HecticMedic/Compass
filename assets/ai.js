@@ -705,7 +705,8 @@ export function applyPantry(items, { replaceLocation, remove = [] } = {}) {
     if (!name) continue;
     const existing = pantry.find(p => key(p.name, p.location) === key(name, i.location));
     if (existing) {
-      Object.assign(existing, { qty: i.qty ?? existing.qty, useSoon: !!i.useSoon });
+      // A scan that can't make out an amount leaves the old one alone.
+      Object.assign(existing, { qty: i.qty?.trim() || existing.qty, useSoon: !!i.useSoon });
       result.kept.push(existing.name);
     } else {
       pantry.push({ id: uid(), name, location: i.location, qty: i.qty || '', added: today, useSoon: !!i.useSoon });
