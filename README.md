@@ -29,6 +29,8 @@ Once connected, Claude works inside the apps, so there's no separate Claude app 
 3. Create an API key under **API keys**.
 4. On her phone, open Compass, tap **✨ Add Claude to Compass**, and paste the key. Compass checks the key before saving it.
 
+**Setting up a second phone:** on a phone that's already connected, open Ask Compass → ⚙︎ → **Set up another phone** to show a QR code. On the new phone, open Compass → ✨ Add Claude to Compass → **Scan setup code** and point it at the code. The key goes straight across without being typed, emailed or texted. (Scanning with the regular camera app also works on Android, but on iPhone use Scan setup code inside Compass, because iPhones keep home-screen apps' storage separate from Safari.) The code contains the key, so don't screenshot or share it.
+
 **Cost:** Compass uses Claude Sonnet 5.5 at medium effort ($2 per million input tokens, $10 per million output tokens). A typical chat or ✨ button costs a cent or two. Long chats with lots of photos cost more, so tap ✎ to start a fresh chat for a new topic.
 
 **Privacy and safety:**

@@ -82,6 +82,10 @@
     .setup ol { padding-left: 20px; margin: 8px 0 0; }
     .setup li { margin: 6px 0; }
     .setup a { color: var(--accent); }
+    .or { text-align: center; color: var(--muted); font-size: .85rem; margin: 14px 0 10px; }
+    .qr-box { background: #fff; border-radius: 14px; padding: 10px; width: min(260px, 70vw); margin: 12px auto; }
+    .qr-box svg, .qr-box img { display: block; width: 100%; height: auto; }
+    #scan-video { width: 100%; border-radius: 14px; background: #000; aspect-ratio: 1; object-fit: cover; }
   </style>
 </head>
 <body>
@@ -110,6 +114,9 @@
           <button class="btn block" style="margin-top:12px" id="key-save">Connect</button>
           <p class="small" id="key-msg" style="min-height:1.4em;margin:8px 0 0"></p>
         </form>
+        <p class="or">Already set up on another phone?</p>
+        <button class="btn secondary block" type="button" id="scan-btn">📷 Scan setup code</button>
+        <p class="muted small" style="margin:8px 0 0">On that phone, open Ask Compass → ⚙︎ → Set up another phone.</p>
       </div>
     </section>
 
@@ -140,12 +147,36 @@
       <button class="btn grow" id="replace-key">Save new key</button>
     </div>
     <div class="row" style="margin-top:8px">
+      <button class="btn secondary grow" id="share-btn">📱 Set up another phone</button>
+    </div>
+    <div class="row" style="margin-top:8px">
       <button class="btn secondary grow hidden" id="web-on">Turn web search back on</button>
     </div>
     <div class="actions">
       <button class="btn danger" id="remove-key" style="margin-right:auto">Disconnect</button>
       <button class="btn secondary" id="close-settings">Done</button>
     </div>
+  </dialog>
+
+  <dialog id="share">
+    <h3>Set up another phone</h3>
+    <p class="muted small" style="margin:0">On the other phone, open Compass → Ask Compass → <strong>Scan setup code</strong>, and point it at this code.</p>
+    <div class="qr-box" id="qr"></div>
+    <p class="small" style="margin:0;color:var(--bad)">This code contains your Claude key. Only show it to a phone you're setting up, and don't screenshot or share it.</p>
+    <div class="actions">
+      <button class="btn secondary" id="close-share">Done</button>
+    </div>
+  </dialog>
+
+  <dialog id="scanner">
+    <h3>Scan setup code</h3>
+    <video id="scan-video" playsinline muted></video>
+    <p class="small muted" id="scan-msg" style="margin:8px 0 0">Point the camera at the code on the other phone.</p>
+    <div class="actions">
+      <button class="btn secondary" id="scan-photo" style="margin-right:auto">Use a photo instead</button>
+      <button class="btn secondary" id="close-scan">Cancel</button>
+    </div>
+    <input type="file" id="scan-file" accept="image/*" class="hidden">
   </dialog>
 
   <script src="../assets/common.js"></script>
@@ -465,6 +496,134 @@
       settings.close();
       showMode();
     });
+
+    // ---- Moving the key to another phone with a QR code ----
+    // The code holds a link to this page with the key in the #fragment, which
+    // browsers never send to the web server. Scanning it inside Compass (or
+    // opening the link) saves the key on the new phone.
+    const loadQR = () => import(new URL('../assets/vendor/qr.js', location.href).href);
+    const SETUP_PREFIX = '#setup=';
+
+    function keyFromCode(text) {
+      const t = (text || '').trim();
+      const i = t.indexOf(SETUP_PREFIX);
+      const key = i >= 0 ? decodeURIComponent(t.slice(i + SETUP_PREFIX.length)) : t;
+      return key.startsWith('sk-ant-') ? key : '';
+    }
+
+    // Checks the key first, so a bad code never replaces a working key.
+    async function connectFromCode(key) {
+      const wasReady = hasAIKey();
+      const msg = document.getElementById('key-msg');
+      document.getElementById('key-input').value = key;
+      const ok = await checkAndSaveKey(key, msg, document.getElementById('key-save'));
+      if (wasReady) alert(ok ? 'Claude is connected ✓' : msg.textContent);
+      else if (ok) setTimeout(showMode, 900);
+    }
+
+    const share = document.getElementById('share');
+    document.getElementById('share-btn').addEventListener('click', async () => {
+      const { qrcode } = await loadQR();
+      const AI = await getAI();
+      const link = new URL(location.pathname, location.href).href + SETUP_PREFIX + encodeURIComponent(AI.getKey());
+      const qr = qrcode(0, 'M');
+      qr.addData(link);
+      qr.make();
+      document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+      settings.close();
+      share.showModal();
+    });
+    const closeShare = () => { document.getElementById('qr').innerHTML = ''; share.close(); };
+    document.getElementById('close-share').addEventListener('click', closeShare);
+    share.addEventListener('cancel', () => { document.getElementById('qr').innerHTML = ''; });
+
+    // Scanning: live camera when allowed, otherwise a photo of the code.
+    const scanner = document.getElementById('scanner');
+    const video = document.getElementById('scan-video');
+    let stream = null;
+
+    function stopCamera() {
+      stream?.getTracks().forEach(t => t.stop());
+      stream = null;
+      video.srcObject = null;
+    }
+
+    function readCode(jsQR, source, width, height) {
+      const scale = Math.min(1, 800 / Math.max(width, height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      return jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' })?.data || '';
+    }
+
+    function found(text) {
+      const key = keyFromCode(text);
+      if (!key) {
+        document.getElementById('scan-msg').textContent = 'That isn\'t a Compass setup code. Try again.';
+        return false;
+      }
+      stopCamera();
+      scanner.close();
+      connectFromCode(key);
+      return true;
+    }
+
+    document.getElementById('scan-btn').addEventListener('click', async () => {
+      document.getElementById('scan-msg').textContent = 'Point the camera at the code on the other phone.';
+      scanner.showModal();
+      const { jsQR } = await loadQR();
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      } catch {
+        document.getElementById('scan-msg').textContent = 'Camera not available here. Tap "Use a photo instead" and take a picture of the code.';
+        return;
+      }
+      video.srcObject = stream;
+      await video.play().catch(() => {});
+      let last = '';
+      const tick = () => {
+        if (!stream) return;
+        if (video.readyState >= 2) {
+          const text = readCode(jsQR, video, video.videoWidth, video.videoHeight);
+          if (text && text !== last) { last = text; if (found(text)) return; }
+        }
+        setTimeout(tick, 200);
+      };
+      tick();
+    });
+
+    document.getElementById('close-scan').addEventListener('click', () => { stopCamera(); scanner.close(); });
+    scanner.addEventListener('cancel', stopCamera);
+    const scanFile = document.getElementById('scan-file');
+    document.getElementById('scan-photo').addEventListener('click', () => scanFile.click());
+    scanFile.addEventListener('change', async () => {
+      const file = scanFile.files[0];
+      scanFile.value = '';
+      if (!file) return;
+      const { jsQR } = await loadQR();
+      try {
+        const bitmap = await createImageBitmap(file);
+        const text = readCode(jsQR, bitmap, bitmap.width, bitmap.height);
+        if (!text) document.getElementById('scan-msg').textContent = 'Couldn\'t find a code in that photo. Try again, a little closer.';
+        else found(text);
+      } catch {
+        document.getElementById('scan-msg').textContent = 'Couldn\'t read that photo.';
+      }
+    });
+
+    // Opened from the setup code's link (e.g. scanned with the camera app):
+    // take the key out of the address bar right away, then connect.
+    function takeLinkedKey() {
+      if (!location.hash.startsWith(SETUP_PREFIX)) return;
+      const key = keyFromCode(location.hash);
+      window.history.replaceState(null, '', location.pathname + location.search);
+      if (key) connectFromCode(key);
+    }
+    takeLinkedKey();
+    addEventListener('hashchange', takeLinkedKey);
 
     // Opening with ?q=… (from a ✨ link elsewhere) starts that question.
     showMode();
