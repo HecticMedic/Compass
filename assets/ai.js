@@ -4,7 +4,9 @@
 
 import Anthropic from './vendor/anthropic-sdk.js';
 
-const MODEL = 'claude-opus-5-5';
+const MODEL = 'claude-sonnet-5-5';
+// Sonnet's default effort is high; medium keeps replies quick and costs down.
+const EFFORT = 'medium';
 const BETAS = ['server-side-fallback-2026-07-01'];
 const NO_WEB_KEY = 'compass-secret:noWebTools';
 
@@ -64,16 +66,18 @@ function nowLine() {
 // ---- One-shot helpers for the ✨ buttons ----
 
 // Asks for JSON matching `schema`. Server tools (e.g. web_fetch) may pause a
-// long turn, so keep going until Claude finishes.
-async function askJSON({ system, prompt, schema, tools, effort = 'low' }) {
+// long turn, so keep going until Claude finishes. `images` are image blocks
+// (from photoBlock) sent ahead of the prompt.
+async function askJSON({ system, prompt, schema, tools, images = [] }) {
   const c = client();
-  const messages = [{ role: 'user', content: `${nowLine()}\n\n${prompt}` }];
+  const text = `${nowLine()}\n\n${prompt}`;
+  const messages = [{ role: 'user', content: images.length ? [...images, { type: 'text', text }] : text }];
   try {
     for (let i = 0; i < 5; i++) {
       const res = await c.beta.messages.create({
         ...BASE,
         max_tokens: 16000,
-        output_config: { effort, format: { type: 'json_schema', schema } },
+        output_config: { effort: EFFORT, format: { type: 'json_schema', schema } },
         system,
         ...(tools ? { tools } : {}),
         messages,
@@ -93,12 +97,12 @@ async function askJSON({ system, prompt, schema, tools, effort = 'low' }) {
 }
 
 // Streams a short written answer into onText as it arrives.
-async function streamText({ system, prompt, onText, effort = 'low' }) {
+async function streamText({ system, prompt, onText }) {
   try {
     const stream = client().beta.messages.stream({
       ...BASE,
       max_tokens: 16000,
-      output_config: { effort },
+      output_config: { effort: EFFORT },
       system,
       messages: [{ role: 'user', content: `${nowLine()}\n\n${prompt}` }],
     });
@@ -244,6 +248,75 @@ Note: ${text}`,
   });
 }
 
+const LOCATIONS = ['fridge', 'freezer', 'pantry'];
+
+// Lists the food visible in photos of a fridge, freezer or pantry.
+export async function scanPantryPhotos(images, location) {
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['items'],
+    properties: {
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name', 'qty', 'location', 'useSoon'],
+          properties: {
+            name: { type: 'string', description: 'Plain grocery name, e.g. "Greek yogurt", "Cheddar cheese"' },
+            qty: { type: 'string', description: 'Rough amount you can see, e.g. "2", "half a carton", "about 1 lb". Empty if unclear.' },
+            location: { type: 'string', enum: LOCATIONS },
+            useSoon: { type: 'boolean', description: 'True for things that look like they should be used in the next few days (ripe produce, opened dairy, leftovers).' },
+          },
+        },
+      },
+    },
+  };
+  const out = await askJSON({
+    system: HELPER_SYSTEM,
+    schema,
+    images,
+    prompt: `These photos show the inside of their ${location}. List every food or drink item you can identify, once each (combine duplicates across photos). Use plain shopping-list names. Include condiments and leftovers (e.g. "Leftover pasta"). Skip things you can't identify rather than guessing wildly. Set location to "${location}" unless an item is clearly elsewhere.`,
+  });
+  return out.items.filter(i => i.name.trim());
+}
+
+// Recipe ideas that use what they already have, favoring things to use soon.
+export async function pantryRecipes({ items, wishes }) {
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['recipes'],
+    properties: {
+      recipes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name', 'minutes', 'uses', 'missing', 'ingredients', 'steps'],
+          properties: {
+            name: { type: 'string' },
+            minutes: { type: 'integer', description: 'Total time' },
+            uses: { type: 'array', items: { type: 'string' }, description: 'Items from their inventory this uses, named as in the inventory' },
+            missing: { type: 'array', items: { type: 'string' }, description: 'Things they would need to buy. Keep short; assume salt, pepper, oil and water.' },
+            ingredients: { type: 'array', items: { type: 'string' }, description: 'Full ingredient list with amounts' },
+            steps: { type: 'array', items: { type: 'string' }, description: 'Short, clear steps' },
+          },
+        },
+      },
+    },
+  };
+  const out = await askJSON({
+    system: HELPER_SYSTEM,
+    schema,
+    prompt: `Suggest 4 home-cooked recipes they can make mostly from what they have. Favor items marked useSoon. At least two should need nothing extra. Keep it realistic for a weeknight unless they say otherwise.
+What they have: ${JSON.stringify(items)}
+${wishes ? `What they asked for: ${wishes}` : ''}`,
+  });
+  return out.recipes;
+}
+
 export function budgetInsights(data, onText) {
   return streamText({
     system: HELPER_SYSTEM,
@@ -264,8 +337,9 @@ export function habitReflection(data, onText) {
 
 const CHAT_SYSTEM = `You are Claude, built into Compass, a household app one family uses on their phone. You're talking with the person who runs it. Help with anything they ask, just as you would in the Claude app: questions, advice, ideas, writing, planning, recipes, research.
 
-Compass has four tools you can read and change with your tools:
+Compass has five apps you can read and change with your tools:
 - Meals: a weekly plan (breakfast, lunch, dinner per date), saved recipes with ingredients, and a grocery list.
+- Pantry: what food they have at home, by location (fridge, freezer, pantry), with rough amounts and a "use soon" flag.
 - Chores: household jobs with a repeat interval and next due date.
 - Budget: expenses by category with monthly limits.
 - Habits: daily habits with a target count per day and a log of check-ins.
@@ -274,6 +348,8 @@ How to work:
 - When they ask you to add, plan, log or change something, do it with the tools straight away, then confirm in a sentence. Don't ask permission for routine changes. For anything that deletes or overwrites a lot, check first.
 - Read the current data with get_compass_data before answering questions about it or before planning (e.g. check saved recipes before planning meals, and what's already on the grocery list).
 - When planning meals from saved recipes, use the recipe name exactly so its ingredients can be added to groceries. Offer to add the ingredients.
+- If they send a photo of the inside of their fridge, freezer or pantry, identify what's there and update the Pantry right away with update_pantry: replace_location set to that spot, since the photo shows what's there now (unless they say it's only part of it, then just add). Tell them briefly what changed, then suggest a few meals they could make from it, favoring things to use soon.
+- When they ask what to cook, check the Pantry first and favor what they already have. When they say they used something up, remove it from the Pantry and offer to add it to groceries.
 - If they send a photo of a receipt, recipe or list, read it and offer to add it to the right app.
 - Use web search for anything current or that you're unsure of.
 
@@ -293,7 +369,7 @@ const TOOLS = {
       properties: {
         sections: {
           type: 'array',
-          items: { type: 'string', enum: ['meal_plan', 'recipes', 'groceries', 'chores', 'budget', 'habits'] },
+          items: { type: 'string', enum: ['meal_plan', 'recipes', 'groceries', 'pantry', 'chores', 'budget', 'habits'] },
         },
       },
       required: ['sections'],
@@ -311,6 +387,8 @@ const TOOLS = {
           out.recipes = Store.get('meals:recipes', []).map(({ name, ingredients, notes }) => ({ name, ingredients, notes }));
         } else if (s === 'groceries') {
           out.groceries = Store.get('meals:groceries', []).map(g => ({ item: g.name, in_cart: g.done }));
+        } else if (s === 'pantry') {
+          out.pantry = Store.get('pantry', []).map(({ name, qty, location, added, useSoon }) => ({ name, qty, location, added, use_soon: useSoon }));
         } else if (s === 'chores') {
           out.chores = Store.get('chores', []).map(({ name, repeat, due }) => ({ name, repeat, due }));
         } else if (s === 'budget') {
@@ -569,7 +647,85 @@ const TOOLS = {
       return { ok: true };
     },
   },
+
+  update_pantry: {
+    description: 'Update the Pantry inventory. With replace_location, that spot\'s list becomes exactly `add` (use this after reading a photo of the whole fridge/freezer/pantry). Otherwise `add` items are added or updated by name, and `remove` names are taken out (used up).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        add: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              qty: { type: 'string', description: 'Rough amount, or empty' },
+              location: { type: 'string', enum: LOCATIONS },
+              use_soon: { type: 'boolean' },
+            },
+            required: ['name', 'location'],
+          },
+        },
+        remove: { type: 'array', items: { type: 'string' } },
+        replace_location: { type: 'string', enum: LOCATIONS },
+      },
+      required: [],
+    },
+    label: ({ add = [], remove = [], replace_location }) => replace_location
+      ? `🥫 Updated the ${replace_location} (${add.length} item${add.length === 1 ? '' : 's'})`
+      : `🥫 Pantry: ${[add.length && `added ${add.length}`, remove.length && `removed ${remove.length}`].filter(Boolean).join(', ') || 'no changes'}`,
+    run({ add = [], remove = [], replace_location }) {
+      return applyPantry(add.map(i => ({ ...i, useSoon: !!i.use_soon })), { replaceLocation: replace_location, remove });
+    },
+  },
 };
+
+/**
+ * Merges items into the Pantry (Store 'pantry'). With replaceLocation, that
+ * location's list becomes exactly the given items, keeping the id and added
+ * date of anything already there under the same name. Exported so the Pantry
+ * app can share it. Returns { added, removed, kept } name lists.
+ */
+export function applyPantry(items, { replaceLocation, remove = [] } = {}) {
+  let pantry = Store.get('pantry', []);
+  const key = (name, loc) => `${loc}|${name.trim().toLowerCase()}`;
+  const today = isoDate();
+  const result = { added: [], removed: [], kept: [] };
+
+  if (replaceLocation) {
+    const before = pantry.filter(p => p.location === replaceLocation);
+    const wanted = new Set(items.map(i => key(i.name, replaceLocation)));
+    for (const p of before) if (!wanted.has(key(p.name, p.location))) result.removed.push(p.name);
+    pantry = pantry.filter(p => p.location !== replaceLocation || wanted.has(key(p.name, p.location)));
+    items = items.map(i => ({ ...i, location: replaceLocation }));
+  }
+
+  for (const i of items) {
+    const name = i.name.trim();
+    if (!name) continue;
+    const existing = pantry.find(p => key(p.name, p.location) === key(name, i.location));
+    if (existing) {
+      // A scan that can't make out an amount leaves the old one alone.
+      Object.assign(existing, { qty: i.qty?.trim() || existing.qty, useSoon: !!i.useSoon });
+      result.kept.push(existing.name);
+    } else {
+      pantry.push({ id: uid(), name, location: i.location, qty: i.qty || '', added: today, useSoon: !!i.useSoon });
+      result.added.push(name);
+    }
+  }
+
+  const gone = new Set(remove.map(n => n.trim().toLowerCase()));
+  if (gone.size) {
+    pantry = pantry.filter(p => {
+      if (!gone.has(p.name.toLowerCase())) return true;
+      result.removed.push(p.name);
+      return false;
+    });
+  }
+
+  Store.set('pantry', pantry);
+  return result;
+}
 
 const BUDGET_DEFAULTS = [
   ['groceries', 'Groceries'], ['dining', 'Eating out'], ['home', 'Household'], ['transport', 'Transport'],
@@ -627,6 +783,8 @@ function validate(schema, value, path = 'input') {
       return typeof value === 'number' && isFinite(value) ? null : `${path} must be a number`;
     case 'integer':
       return Number.isInteger(value) ? null : `${path} must be a whole number`;
+    case 'boolean':
+      return typeof value === 'boolean' ? null : `${path} must be true or false`;
   }
   return null;
 }
@@ -679,7 +837,7 @@ export async function chat(history, { onText, onStatus, onStep, signal }) {
       const params = {
         ...BASE,
         max_tokens: 64000,
-        output_config: { effort: 'medium' },
+        output_config: { effort: EFFORT },
         cache_control: { type: 'ephemeral' },
         system: CHAT_SYSTEM,
         tools: useWeb ? [...CLIENT_TOOLS, ...WEB_TOOLS] : CLIENT_TOOLS,
@@ -777,7 +935,7 @@ export async function testKey(key) {
     await c.beta.messages.create({
       ...BASE,
       max_tokens: 64,
-      output_config: { effort: 'low' },
+      output_config: { effort: EFFORT },
       messages: [{ role: 'user', content: 'Reply with OK.' }],
     });
   } catch (err) {

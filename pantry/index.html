@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="compass-root" content="../">
+  <meta name="theme-color" content="#faf7f2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icon-180.png">
+  <link rel="stylesheet" href="../assets/style.css">
+  <title>Pantry</title>
+  <style>
+    .list li.section-head {
+      background: none; border: 0; min-height: 0; padding: 10px 2px 2px; margin: 0;
+      font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+    }
+    .list li .text { cursor: pointer; }
+    .seg { display: flex; gap: 4px; background: var(--surface-2); border-radius: 12px; padding: 4px; }
+    .seg button {
+      flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600;
+      padding: 8px 4px; border-radius: 9px; cursor: pointer;
+    }
+    .seg button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+    .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .thumbs img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }
+    .review-list { max-height: 50vh; overflow-y: auto; margin-top: 8px; }
+    .review-item { display: grid; grid-template-columns: 24px 1fr 84px auto; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .review-item input[type=checkbox] { width: 20px; height: 20px; padding: 0; }
+    .review-item input[type=text] { padding: 8px 10px; }
+    .review-item button.soon { border: 0; cursor: pointer; font: inherit; font-size: .75rem; font-weight: 600; padding: 6px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+    .review-item button.soon.on { background: var(--accent-soft); color: var(--accent); }
+    .summary { background: var(--good-soft); color: var(--good); border-radius: 12px; padding: 10px 12px; margin: 10px 0; font-weight: 600; }
+    .idea h3 { margin: 0 0 6px; font-size: 1.05rem; }
+    .idea .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+    .idea details { margin: 8px 0; }
+    .idea summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+    .idea ol { margin: 6px 0 0; padding-left: 20px; }
+    .idea .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .idea .note { color: var(--good); font-weight: 600; font-size: .875rem; margin-top: 8px; }
+    a.btn { display: inline-block; text-decoration: none; font-weight: 600; border-radius: 10px; padding: 10px 16px; background: var(--accent); color: #fff; }
+    @media (prefers-color-scheme: dark) { a.btn { color: #1b1917; } }
+    .check-label { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--text); font-size: 1rem; font-weight: 400; }
+    .check-label input { width: 20px; height: 20px; padding: 0; }
+  </style>
+</head>
+<body>
+  <header class="top"><a class="back" href="../">‹ Home</a><h1>Pantry</h1></header>
+  <main>
+    <div class="tabs">
+      <button data-tab="have">What we have</button>
+      <button data-tab="cook">Cook</button>
+    </div>
+
+    <!-- What we have -->
+    <section id="tab-have">
+      <button class="btn block ai-only hidden" id="scan-open" style="padding:14px 16px">📷 Scan the fridge or pantry</button>
+      <div id="summary" class="summary hidden"></div>
+      <form id="add-form" style="margin-top:12px">
+        <div class="row">
+          <input class="grow" id="add-name" placeholder="Add an item…" autocomplete="off" required>
+          <button class="btn">Add</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <input class="grow" id="add-qty" placeholder="How much? (optional)" autocomplete="off">
+          <select id="add-loc" style="width:auto" aria-label="Where">
+            <option value="fridge">Fridge</option>
+            <option value="freezer">Freezer</option>
+            <option value="pantry">Pantry</option>
+          </select>
+        </div>
+      </form>
+      <div id="inventory"></div>
+    </section>
+
+    <!-- Cook -->
+    <section id="tab-cook">
+      <div class="card hidden" id="no-key">
+        <p style="margin-top:0">Connect Claude to get recipe ideas from what you have.</p>
+        <a class="btn" href="../assistant/">Connect Claude</a>
+      </div>
+      <div class="ai-only hidden">
+        <label for="wishes">Anything to keep in mind? (e.g. quick, kid-friendly, use the spinach)</label>
+        <input id="wishes" autocomplete="off" placeholder="quick, kid-friendly…">
+        <button class="btn block" id="ai-cook" style="margin-top:10px">✨ What can I make?</button>
+      </div>
+      <div id="ideas"></div>
+    </section>
+  </main>
+
+  <dialog id="scan-dialog">
+    <div id="scan-setup">
+      <h3>Scan a photo</h3>
+      <label>Where is this?</label>
+      <div class="seg" id="scan-loc">
+        <button type="button" data-v="fridge" class="active">Fridge</button>
+        <button type="button" data-v="freezer">Freezer</button>
+        <button type="button" data-v="pantry">Pantry</button>
+      </div>
+      <label>What should happen?</label>
+      <div class="seg" id="scan-mode" style="flex-direction:column">
+        <button type="button" data-v="replace" class="active">Replace what's listed for this spot</button>
+        <button type="button" data-v="add">Just add these</button>
+      </div>
+      <input type="file" id="scan-file" accept="image/*" multiple class="hidden">
+      <button class="btn secondary block" type="button" id="scan-choose" style="margin-top:14px">Choose photos</button>
+      <div class="muted small" style="margin-top:6px">Up to 4 photos.</div>
+      <div class="thumbs" id="scan-thumbs"></div>
+      <div class="actions">
+        <button class="btn secondary" type="button" data-close>Cancel</button>
+        <button class="btn" type="button" id="scan-go" disabled>Scan</button>
+      </div>
+    </div>
+    <div id="scan-review" class="hidden">
+      <h3>Here's what I found</h3>
+      <div class="muted small" id="review-hint"></div>
+      <div class="review-list" id="review-list"></div>
+      <div class="actions">
+        <button class="btn secondary" type="button" data-close>Cancel</button>
+        <button class="btn" type="button" id="scan-apply">Update inventory</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="edit-dialog">
+    <form method="dialog" id="edit-form">
+      <h3>Edit item</h3>
+      <label for="edit-name">Name</label>
+      <input id="edit-name" required>
+      <label for="edit-qty">How much (optional)</label>
+      <input id="edit-qty" autocomplete="off">
+      <label for="edit-loc">Where</label>
+      <select id="edit-loc">
+        <option value="fridge">Fridge</option>
+        <option value="freezer">Freezer</option>
+        <option value="pantry">Pantry</option>
+      </select>
+      <label class="check-label"><input type="checkbox" id="edit-soon"> Use soon</label>
+      <div class="actions">
+        <button class="btn danger" type="button" id="edit-delete" style="margin-right:auto">Delete</button>
+        <button class="btn secondary" type="button" id="edit-cancel">Cancel</button>
+        <button class="btn" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="../assets/common.js"></script>
+  <script>
+    const LOCS = { fridge: 'Fridge', freezer: 'Freezer', pantry: 'Pantry' };
+
+    let items = Store.get('pantry', []);
+    let ideas = Store.get('pantry:ideas', []);
+
+    const saveItems = () => Store.set('pantry', items);
+    const saveIdeas = () => Store.set('pantry:ideas', ideas);
+    const $ = id => document.getElementById(id);
+    const lower = s => String(s || '').trim().toLowerCase();
+
+    // ---- Inventory ----
+    function renderInventory() {
+      const html = Object.keys(LOCS).map(loc => {
+        const group = items.filter(i => i.location === loc)
+          .sort((a, b) => (b.useSoon - a.useSoon) || a.name.localeCompare(b.name));
+        if (!group.length) return '';
+        return `<h2>${LOCS[loc]} <span class="count">(${group.length})</span></h2>
+          <ul class="list">${group.map(itemRow).join('')}</ul>`;
+      }).join('');
+      $('inventory').innerHTML = html ||
+        '<div class="empty" style="margin-top:12px">Nothing here yet. Scan a photo of your fridge or pantry, or add things above.</div>';
+    }
+
+    function itemRow(i) {
+      const meta = [i.qty, 'added ' + friendlyDate(i.added)].filter(Boolean).join(' · ');
+      return `
+        <li data-id="${i.id}">
+          <div class="grow text" data-act="edit">
+            <div class="title">${esc(i.name)} ${i.useSoon ? '<span class="pill accent">Use soon</span>' : ''}</div>
+            <div class="muted small">${esc(meta)}</div>
+          </div>
+          <button class="icon" data-act="buy" aria-label="Used up, add to groceries" title="Used up, buy more">🛒</button>
+          <button class="icon" data-act="remove" aria-label="Remove">✕</button>
+        </li>`;
+    }
+
+    function showSummary(text) {
+      $('summary').textContent = text;
+      $('summary').classList.toggle('hidden', !text);
+    }
+
+    // Adds names to the grocery list, skipping ones already waiting there. Returns how many were added.
+    function addToGroceries(names) {
+      const groceries = Store.get('meals:groceries', []);
+      const onList = new Set(groceries.filter(g => !g.done).map(g => lower(g.name)));
+      let added = 0;
+      for (const name of names) {
+        const n = String(name || '').trim();
+        if (!n || onList.has(lower(n))) continue;
+        onList.add(lower(n));
+        groceries.push({ id: uid(), name: n, done: false });
+        added++;
+      }
+      Store.set('meals:groceries', groceries);
+      return added;
+    }
+
+    $('add-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const name = $('add-name').value.trim();
+      if (!name) return;
+      items.push({ id: uid(), name, location: $('add-loc').value, qty: $('add-qty').value.trim(), added: isoDate(), useSoon: false });
+      $('add-name').value = '';
+      $('add-qty').value = '';
+      saveItems();
+      renderInventory();
+      $('add-name').focus();
+    });
+
+    $('inventory').addEventListener('click', e => {
+      const li = e.target.closest('li[data-id]');
+      if (!li) return;
+      const item = items.find(i => i.id === li.dataset.id);
+      const btn = e.target.closest('button[data-act]');
+      if (btn?.dataset.act === 'buy') {
+        addToGroceries([item.name]);
+        items = items.filter(i => i !== item);
+      } else if (btn?.dataset.act === 'remove') {
+        items = items.filter(i => i !== item);
+      } else if (e.target.closest('[data-act="edit"]')) {
+        return openEdit(item);
+      } else return;
+      saveItems();
+      renderInventory();
+    });
+
+    // ---- Edit ----
+    const editDialog = $('edit-dialog');
+    let editingId = null;
+
+    function openEdit(item) {
+      editingId = item.id;
+      $('edit-name').value = item.name;
+      $('edit-qty').value = item.qty;
+      $('edit-loc').value = item.location;
+      $('edit-soon').checked = !!item.useSoon;
+      editDialog.showModal();
+    }
+
+    $('edit-cancel').addEventListener('click', () => editDialog.close());
+    $('edit-delete').addEventListener('click', () => {
+      items = items.filter(i => i.id !== editingId);
+      saveItems();
+      renderInventory();
+      editDialog.close();
+    });
+    $('edit-form').addEventListener('submit', () => {
+      const item = items.find(i => i.id === editingId);
+      const name = $('edit-name').value.trim();
+      if (!item || !name) return;
+      Object.assign(item, { name, qty: $('edit-qty').value.trim(), location: $('edit-loc').value, useSoon: $('edit-soon').checked });
+      saveItems();
+      renderInventory();
+    });
+
+    // ---- Scan ----
+    const scanDialog = $('scan-dialog');
+    let blocks = [];
+    let detected = [];
+    const segValue = id => $(id).querySelector('.active').dataset.v;
+
+    for (const id of ['scan-loc', 'scan-mode']) {
+      $(id).addEventListener('click', e => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        $(id).querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+      });
+    }
+
+    function renderThumbs() {
+      $('scan-thumbs').innerHTML = blocks.map(b =>
+        `<img alt="Chosen photo" src="data:${b.source.media_type};base64,${b.source.data}">`).join('');
+      $('scan-go').disabled = !blocks.length;
+    }
+
+    $('scan-open').addEventListener('click', () => {
+      blocks = [];
+      detected = [];
+      $('scan-file').value = '';
+      renderThumbs();
+      $('scan-setup').classList.remove('hidden');
+      $('scan-review').classList.add('hidden');
+      scanDialog.showModal();
+    });
+    scanDialog.addEventListener('click', e => { if (e.target.closest('[data-close]')) scanDialog.close(); });
+    $('scan-choose').addEventListener('click', () => $('scan-file').click());
+
+    $('scan-file').addEventListener('change', e => {
+      const files = [...e.target.files].slice(0, 4);
+      if (!files.length) return;
+      withAI($('scan-choose'), 'Loading…', async AI => {
+        blocks = await Promise.all(files.map(f => AI.photoBlock(f)));
+        renderThumbs();
+      });
+    });
+
+    $('scan-go').addEventListener('click', e => {
+      const loc = segValue('scan-loc');
+      withAI(e.currentTarget, 'Looking…', async AI => {
+        const found = await AI.scanPantryPhotos(blocks, loc);
+        detected = (found || []).map(d => ({ name: String(d.name || '').trim(), qty: String(d.qty || '').trim(), useSoon: !!d.useSoon, on: true }))
+          .filter(d => d.name);
+        $('review-hint').textContent = detected.length
+          ? `${LOCS[loc]}: untick anything that's wrong, fix names or amounts.`
+          : 'I couldn\'t spot anything. Try a clearer photo.';
+        renderReview();
+        $('scan-setup').classList.add('hidden');
+        $('scan-review').classList.remove('hidden');
+      });
+    });
+
+    function renderReview() {
+      $('review-list').innerHTML = detected.map((d, i) => `
+        <div class="review-item" data-i="${i}">
+          <input type="checkbox" data-f="on" ${d.on ? 'checked' : ''} aria-label="Include">
+          <input type="text" data-f="name" value="${esc(d.name)}" aria-label="Name">
+          <input type="text" data-f="qty" value="${esc(d.qty)}" placeholder="Amount" aria-label="Amount">
+          <button type="button" class="soon ${d.useSoon ? 'on' : ''}" data-f="soon">Use soon</button>
+        </div>`).join('');
+    }
+
+    $('review-list').addEventListener('input', e => {
+      const f = e.target.dataset.f;
+      const d = detected[e.target.closest('.review-item')?.dataset.i];
+      if (!d) return;
+      if (f === 'name' || f === 'qty') d[f] = e.target.value;
+      else if (f === 'on') d.on = e.target.checked;
+    });
+    $('review-list').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-f="soon"]');
+      if (!btn) return;
+      const d = detected[btn.closest('.review-item').dataset.i];
+      d.useSoon = !d.useSoon;
+      btn.classList.toggle('on', d.useSoon);
+    });
+
+    $('scan-apply').addEventListener('click', e => {
+      const loc = segValue('scan-loc');
+      const replace = segValue('scan-mode') === 'replace';
+      const chosen = detected.filter(d => d.on && d.name.trim())
+        .map(d => ({ name: d.name.trim(), qty: d.qty.trim(), location: loc, useSoon: d.useSoon }));
+      withAI(e.currentTarget, 'Updating…', async AI => {
+        const r = AI.applyPantry(chosen, replace ? { replaceLocation: loc } : {});
+        items = Store.get('pantry', []);
+        showSummary(replace
+          ? `${LOCS[loc]} updated: ${r.added.length} new, ${r.removed.length} gone, ${r.kept.length} still there`
+          : `Added ${r.added.length} to the ${loc}` + (r.kept.length ? `, updated ${r.kept.length} already there` : ''));
+        renderInventory();
+        scanDialog.close();
+      });
+    });
+
+    // ---- Cook ----
+    function renderIdeas() {
+      $('ideas').innerHTML = ideas.length
+        ? '<h2>Ideas from Claude</h2>' + ideas.map(ideaCard).join('')
+        : '';
+    }
+
+    function ideaCard(idea, i) {
+      const uses = idea.uses || [], missing = idea.missing || [], steps = idea.steps || [];
+      return `
+        <div class="card idea" data-i="${i}">
+          <h3>${esc(idea.name)}</h3>
+          <div class="muted small">⏱ ${esc(idea.minutes)} min</div>
+          ${uses.length ? `<div class="pills"><span class="muted small">Uses:</span>${uses.map(u => `<span class="pill good">${esc(u)}</span>`).join('')}</div>` : ''}
+          <div class="small ${missing.length ? 'muted' : ''}">${missing.length ? `You'd need: ${missing.map(esc).join(', ')}` : 'Nothing extra needed 🎉'}</div>
+          <details><summary>Steps</summary><ol>${steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol></details>
+          <div class="btns">
+            <button class="btn" data-act="tonight">Cook tonight</button>
+            <button class="btn secondary" data-act="save">Save recipe</button>
+            ${missing.length ? '<button class="btn secondary" data-act="groceries">Add missing to groceries</button>' : ''}
+          </div>
+          <div class="note hidden"></div>
+        </div>`;
+    }
+
+    // Saves an idea into Meals recipes unless one with the same name exists.
+    function saveRecipe(idea) {
+      const recipes = Store.get('meals:recipes', []);
+      if (!recipes.some(r => lower(r.name) === lower(idea.name))) {
+        recipes.push({ id: uid(), name: idea.name, ingredients: [...(idea.ingredients || [])], notes: (idea.steps || []).join('\n') });
+        Store.set('meals:recipes', recipes);
+      }
+    }
+
+    $('ideas').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const card = btn.closest('.idea');
+      const idea = ideas[card.dataset.i];
+      let msg = '';
+      if (btn.dataset.act === 'tonight') {
+        saveRecipe(idea);
+        const plan = Store.get('meals:plan', {});
+        const today = isoDate();
+        plan[today] = { ...(plan[today] || {}), dinner: idea.name };
+        Store.set('meals:plan', plan);
+        msg = 'On tonight\'s menu ✓';
+      } else if (btn.dataset.act === 'save') {
+        saveRecipe(idea);
+        msg = 'Saved to your recipes ✓';
+      } else {
+        const n = addToGroceries(idea.missing || []);
+        msg = n ? `Added ${n} to groceries ✓` : 'Already on your grocery list ✓';
+      }
+      const note = card.querySelector('.note');
+      note.textContent = msg;
+      note.classList.remove('hidden');
+    });
+
+    $('ai-cook').addEventListener('click', e => {
+      if (!items.length) return alert('Add or scan some food first, then I can suggest meals.');
+      const wishes = $('wishes').value.trim();
+      withAI(e.currentTarget, 'Thinking…', async AI => {
+        ideas = await AI.pantryRecipes({
+          items: items.map(i => ({ name: i.name, qty: i.qty, location: i.location, useSoon: i.useSoon })),
+          wishes,
+        });
+        saveIdeas();
+        renderIdeas();
+      });
+    });
+
+    setupTabs(name => { if (name === 'cook') $('no-key').classList.toggle('hidden', hasAIKey()); });
+    renderInventory();
+    renderIdeas();
+  </script>
+</body>
+</html>

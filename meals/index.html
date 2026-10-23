@@ -236,6 +236,16 @@
     });
 
     document.getElementById('clear-done').addEventListener('click', () => {
+      if (confirm('Put these in the pantry too?')) {
+        const pantry = Store.get('pantry', []);
+        const have = new Set(pantry.map(p => p.name.toLowerCase()));
+        for (const g of groceries.filter(g => g.done)) {
+          if (have.has(g.name.toLowerCase())) continue;
+          have.add(g.name.toLowerCase());
+          pantry.push({ id: uid(), name: g.name, location: 'pantry', qty: '', added: isoDate(), useSoon: false });
+        }
+        Store.set('pantry', pantry);
+      }
       groceries = groceries.filter(g => !g.done);
       saveGroceries();
       renderGroceries();

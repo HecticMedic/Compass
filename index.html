@@ -24,6 +24,7 @@
     .app .emoji { font-size: 2rem; }
     .app strong { font-size: 1.05rem; }
     .app .status { color: var(--muted); font-size: .85rem; margin-top: auto; }
+    .app.wide { grid-column: span 2; min-height: 0; }
     .ask {
       display: block; text-decoration: none; color: inherit; margin-bottom: 14px;
       background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 18px; padding: 16px;
@@ -71,6 +72,10 @@
         <span class="emoji">🌱</span><strong>Habits</strong>
         <span class="status" id="s-habits">Daily check-ins</span>
       </a>
+      <a class="app wide" href="pantry/">
+        <span class="emoji">🥫</span><strong>Pantry</strong>
+        <span class="status" id="s-pantry">What's in the fridge</span>
+      </a>
     </div>
 
     <section class="card backup">
@@ -112,6 +117,13 @@
       const log = Store.get('habits:log', {})[today] || {};
       const done = habits.filter(h => (log[h.id] || 0) >= h.target).length;
       document.getElementById('s-habits').textContent = `${done} of ${habits.length} done today`;
+    }
+
+    const pantry = Store.get('pantry', []);
+    if (pantry.length) {
+      const soon = pantry.filter(i => i.useSoon).length;
+      document.getElementById('s-pantry').textContent =
+        `${pantry.length} item${pantry.length === 1 ? '' : 's'}` + (soon ? ` · ${soon} to use soon` : '');
     }
 
     const month = today.slice(0, 7);
