@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="compass-root" content="./">
+  <meta name="theme-color" content="#faf7f2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Compass">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-180.png">
+  <link rel="stylesheet" href="assets/style.css">
+  <title>Compass</title>
+  <style>
+    .greeting { margin: 4px 0 18px; color: var(--muted); }
+    .apps { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .app {
+      display: flex; flex-direction: column; gap: 6px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+      padding: 16px; text-decoration: none; color: var(--text); box-shadow: var(--shadow);
+      min-height: 140px;
+    }
+    .app .emoji { font-size: 2rem; }
+    .app strong { font-size: 1.05rem; }
+    .app .status { color: var(--muted); font-size: .85rem; margin-top: auto; }
+    .backup { margin-top: 28px; }
+    .backup p { margin: 0 0 10px; }
+  </style>
+</head>
+<body>
+  <header class="top"><h1>Compass</h1></header>
+  <main>
+    <p class="greeting" id="greeting"></p>
+
+    <div class="apps">
+      <a class="app" href="meals/">
+        <span class="emoji">🍲</span><strong>Meals</strong>
+        <span class="status" id="s-meals">Plan the week and shop</span>
+      </a>
+      <a class="app" href="chores/">
+        <span class="emoji">🧺</span><strong>Chores</strong>
+        <span class="status" id="s-chores">Keep the house on track</span>
+      </a>
+      <a class="app" href="budget/">
+        <span class="emoji">💳</span><strong>Budget</strong>
+        <span class="status" id="s-budget">Track this month's spending</span>
+      </a>
+      <a class="app" href="habits/">
+        <span class="emoji">🌱</span><strong>Habits</strong>
+        <span class="status" id="s-habits">Daily check-ins</span>
+      </a>
+    </div>
+
+    <section class="card backup">
+      <h2 style="margin-top:0">Backup</h2>
+      <p class="muted small">Everything is saved on this phone only. Save a backup file now and then so nothing is lost if the browser data is cleared.</p>
+      <div class="row">
+        <button class="btn secondary grow" id="export">Save backup</button>
+        <button class="btn secondary grow" id="import">Restore backup</button>
+      </div>
+      <input type="file" id="file" accept="application/json,.json" class="hidden">
+    </section>
+  </main>
+
+  <script src="assets/common.js"></script>
+  <script>
+    const hour = new Date().getHours();
+    document.getElementById('greeting').textContent =
+      (hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening') + ' ✨';
+
+    // Small status line on each tile.
+    const today = isoDate();
+
+    const chores = Store.get('chores', []);
+    const dueChores = chores.filter(c => c.due <= today).length;
+    if (chores.length) document.getElementById('s-chores').textContent =
+      dueChores ? `${dueChores} due today` : 'All caught up';
+
+    const plan = Store.get('meals:plan', {});
+    const dinner = plan[today]?.dinner;
+    if (dinner) document.getElementById('s-meals').textContent = 'Tonight: ' + dinner;
+
+    const habits = Store.get('habits', []);
+    if (habits.length) {
+      const log = Store.get('habits:log', {})[today] || {};
+      const done = habits.filter(h => (log[h.id] || 0) >= h.target).length;
+      document.getElementById('s-habits').textContent = `${done} of ${habits.length} done today`;
+    }
+
+    const month = today.slice(0, 7);
+    const spent = Store.get('budget:expenses', [])
+      .filter(e => e.date.startsWith(month))
+      .reduce((sum, e) => sum + e.amount, 0);
+    if (spent) {
+      const currency = Store.get('budget:currency', 'USD');
+      document.getElementById('s-budget').textContent =
+        new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(spent) + ' this month';
+    }
+
+    // Backup and restore.
+    document.getElementById('export').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(Store.dump(), null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `compass-backup-${today}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+
+    const file = document.getElementById('file');
+    document.getElementById('import').addEventListener('click', () => file.click());
+    file.addEventListener('change', async () => {
+      if (!file.files[0]) return;
+      try {
+        const data = JSON.parse(await file.files[0].text());
+        if (!confirm('Replace what is on this phone with the backup?')) return;
+        Store.restore(data);
+        location.reload();
+      } catch {
+        alert('That file is not a Compass backup.');
+      } finally {
+        file.value = '';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="compass-root" content="../">
+  <meta name="theme-color" content="#faf7f2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icon-180.png">
+  <link rel="stylesheet" href="../assets/style.css">
+  <title>Habits</title>
+  <style>
+    .day-nav { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 8px; }
+    .habit { display: flex; align-items: center; gap: 12px; }
+    .habit .emoji { font-size: 1.8rem; width: 40px; text-align: center; }
+    .habit .name { font-weight: 600; }
+    .habit.complete { border-color: var(--good); background: var(--good-soft); }
+    .counter { display: flex; align-items: center; gap: 4px; }
+    .counter button {
+      width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text); font-size: 1.2rem; cursor: pointer;
+    }
+    .counter .n { min-width: 44px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .habit .check { width: 38px; height: 38px; font-size: 1.1rem; }
+    .dots { display: flex; gap: 4px; margin-top: 6px; }
+    .dots span { width: 10px; height: 10px; border-radius: 50%; background: var(--surface-2); }
+    .dots span.on { background: var(--good); }
+    .dots span.part { background: var(--accent-soft); }
+    .summary { text-align: center; font-weight: 600; margin: 4px 0 12px; }
+  </style>
+</head>
+<body>
+  <header class="top"><a class="back" href="../">‹ Home</a><h1>Habits</h1></header>
+  <main>
+    <div class="tabs">
+      <button data-tab="today">Check in</button>
+      <button data-tab="manage">My habits</button>
+    </div>
+
+    <!-- Check in -->
+    <section id="tab-today">
+      <div class="day-nav">
+        <button class="icon" id="prev-day" aria-label="Previous day">‹</button>
+        <strong id="day-label"></strong>
+        <button class="icon" id="next-day" aria-label="Next day">›</button>
+      </div>
+      <p class="summary" id="summary"></p>
+      <div id="habit-cards"></div>
+    </section>
+
+    <!-- Manage -->
+    <section id="tab-manage">
+      <button class="btn block" id="new-habit">+ New habit</button>
+      <ul class="list" id="manage-list" style="margin-top:12px"></ul>
+      <div id="starters" class="card hidden">
+        <strong>Quick start</strong>
+        <p class="muted small" style="margin:4px 0 10px">Tap to add a few common ones. You can edit or remove them later.</p>
+        <div id="starter-buttons" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="habit-dialog">
+    <form method="dialog" id="habit-form">
+      <h3 id="habit-dialog-title">New habit</h3>
+      <div class="row">
+        <div style="width:72px">
+          <label for="habit-emoji">Icon</label>
+          <input id="habit-emoji" maxlength="4" style="text-align:center" placeholder="💧">
+        </div>
+        <div class="grow">
+          <label for="habit-name">Habit</label>
+          <input id="habit-name" required placeholder="e.g. Drink water">
+        </div>
+      </div>
+      <div class="row">
+        <div style="width:100px">
+          <label for="habit-target">Times a day</label>
+          <input id="habit-target" type="number" min="1" max="99" value="1" inputmode="numeric">
+        </div>
+        <div class="grow">
+          <label for="habit-unit">Counting (optional)</label>
+          <input id="habit-unit" placeholder="e.g. glasses">
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn danger" type="button" id="habit-delete" style="margin-right:auto">Delete</button>
+        <button class="btn secondary" type="button" id="habit-cancel">Cancel</button>
+        <button class="btn" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="../assets/common.js"></script>
+  <script>
+    const STARTERS = [
+      { emoji: '💧', name: 'Drink water', target: 8, unit: 'glasses' },
+      { emoji: '😴', name: 'Sleep 7+ hours', target: 1, unit: '' },
+      { emoji: '🚶‍♀️', name: 'Move for 30 minutes', target: 1, unit: '' },
+      { emoji: '💊', name: 'Take vitamins', target: 1, unit: '' },
+      { emoji: '📖', name: 'Read', target: 1, unit: '' },
+      { emoji: '🧘‍♀️', name: 'Stretch or meditate', target: 1, unit: '' },
+      { emoji: '📵', name: 'No phone after 10pm', target: 1, unit: '' },
+      { emoji: '🥗', name: 'Eat a vegetable', target: 3, unit: 'servings' },
+    ];
+
+    let habits = Store.get('habits', []);
+    let log = Store.get('habits:log', {});
+    const saveHabits = () => Store.set('habits', habits);
+    const saveLog = () => Store.set('habits:log', log);
+
+    const count = (date, id) => log[date]?.[id] || 0;
+    const isDone = (date, h) => count(date, h.id) >= h.target;
+
+    function streak(h) {
+      let day = isoDate();
+      if (!isDone(day, h)) day = addDays(day, -1); // today isn't over yet
+      let n = 0;
+      while (isDone(day, h)) { n++; day = addDays(day, -1); }
+      return n;
+    }
+
+    // ---- Check in ----
+    let viewDate = isoDate();
+
+    function renderToday() {
+      const today = isoDate();
+      document.getElementById('day-label').textContent = friendlyDate(viewDate);
+      document.getElementById('next-day').style.visibility = viewDate < today ? 'visible' : 'hidden';
+
+      const cards = document.getElementById('habit-cards');
+      if (!habits.length) {
+        document.getElementById('summary').textContent = '';
+        cards.innerHTML = '<div class="empty">No habits yet. Add a few under <strong>My habits</strong>.</div>';
+        return;
+      }
+
+      const done = habits.filter(h => isDone(viewDate, h)).length;
+      document.getElementById('summary').textContent = done === habits.length
+        ? 'All done 🎉'
+        : `${done} of ${habits.length} done`;
+
+      cards.innerHTML = habits.map(h => {
+        const n = count(viewDate, h.id);
+        const complete = n >= h.target;
+        const s = streak(h);
+        const week = Array.from({ length: 7 }, (_, i) => addDays(viewDate, i - 6)).map(d => {
+          const c = count(d, h.id);
+          return `<span class="${c >= h.target ? 'on' : c > 0 ? 'part' : ''}" title="${d}"></span>`;
+        }).join('');
+        const control = h.target === 1
+          ? `<button class="check ${complete ? 'on' : ''}" data-act="toggle" aria-label="Done">✓</button>`
+          : `<div class="counter">
+               <button data-act="minus" aria-label="Less">−</button>
+               <span class="n">${n}/${h.target}</span>
+               <button data-act="plus" aria-label="More">+</button>
+             </div>`;
+        return `
+          <div class="card habit ${complete ? 'complete' : ''}" data-id="${h.id}">
+            <span class="emoji">${esc(h.emoji)}</span>
+            <div class="grow" style="flex:1;min-width:0">
+              <div class="name">${esc(h.name)}</div>
+              <div class="small muted">${h.unit && h.target > 1 ? `${h.target} ${esc(h.unit)} · ` : ''}${s ? `🔥 ${s} day streak` : 'Last 7 days'}</div>
+              <div class="dots">${week}</div>
+            </div>
+            ${control}
+          </div>`;
+      }).join('');
+    }
+
+    document.getElementById('habit-cards').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const h = habits.find(x => x.id === btn.closest('[data-id]').dataset.id);
+      const n = count(viewDate, h.id);
+      const next = btn.dataset.act === 'toggle' ? (n >= h.target ? 0 : h.target)
+        : btn.dataset.act === 'plus' ? n + 1
+        : Math.max(0, n - 1);
+      log[viewDate] = { ...(log[viewDate] || {}), [h.id]: next };
+      if (!next) delete log[viewDate][h.id];
+      if (!Object.keys(log[viewDate]).length) delete log[viewDate];
+      saveLog();
+      renderToday();
+    });
+
+    document.getElementById('prev-day').addEventListener('click', () => { viewDate = addDays(viewDate, -1); renderToday(); });
+    document.getElementById('next-day').addEventListener('click', () => {
+      if (viewDate < isoDate()) { viewDate = addDays(viewDate, 1); renderToday(); }
+    });
+
+    // ---- Manage ----
+    function renderManage() {
+      document.getElementById('manage-list').innerHTML = habits.map(h => `
+        <li data-id="${h.id}" style="cursor:pointer">
+          <span style="font-size:1.4rem">${esc(h.emoji)}</span>
+          <div class="grow">
+            <div class="title">${esc(h.name)}</div>
+            <div class="small muted">${h.target > 1 ? `${h.target} ${esc(h.unit || 'times')} a day` : 'Once a day'}</div>
+          </div>
+          <span class="muted">›</span>
+        </li>`).join('');
+
+      const unused = STARTERS.filter(s => !habits.some(h => h.name === s.name));
+      document.getElementById('starters').classList.toggle('hidden', !unused.length || habits.length >= 6);
+      document.getElementById('starter-buttons').innerHTML = unused.map(s => `
+        <button class="btn secondary" data-name="${esc(s.name)}">${s.emoji} ${esc(s.name)}</button>`).join('');
+    }
+
+    document.getElementById('starter-buttons').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-name]');
+      if (!btn) return;
+      const s = STARTERS.find(x => x.name === btn.dataset.name);
+      habits.push({ id: uid(), ...s });
+      saveHabits();
+      renderManage();
+      renderToday();
+    });
+
+    const dialog = document.getElementById('habit-dialog');
+    let editingId = null;
+
+    function openHabit(h) {
+      editingId = h?.id || null;
+      document.getElementById('habit-dialog-title').textContent = h ? 'Edit habit' : 'New habit';
+      document.getElementById('habit-emoji').value = h?.emoji || '';
+      document.getElementById('habit-name').value = h?.name || '';
+      document.getElementById('habit-target').value = h?.target || 1;
+      document.getElementById('habit-unit').value = h?.unit || '';
+      document.getElementById('habit-delete').classList.toggle('hidden', !h);
+      dialog.showModal();
+    }
+
+    document.getElementById('new-habit').addEventListener('click', () => openHabit(null));
+    document.getElementById('manage-list').addEventListener('click', e => {
+      const li = e.target.closest('li[data-id]');
+      if (li) openHabit(habits.find(h => h.id === li.dataset.id));
+    });
+    document.getElementById('habit-cancel').addEventListener('click', () => dialog.close());
+
+    document.getElementById('habit-delete').addEventListener('click', () => {
+      if (!confirm('Delete this habit and its history?')) return;
+      habits = habits.filter(h => h.id !== editingId);
+      for (const day of Object.keys(log)) {
+        delete log[day][editingId];
+        if (!Object.keys(log[day]).length) delete log[day];
+      }
+      saveHabits();
+      saveLog();
+      renderManage();
+      renderToday();
+      dialog.close();
+    });
+
+    document.getElementById('habit-form').addEventListener('submit', () => {
+      const name = document.getElementById('habit-name').value.trim();
+      if (!name) return;
+      const data = {
+        name,
+        emoji: document.getElementById('habit-emoji').value.trim() || '⭐',
+        target: Math.min(99, Math.max(1, parseInt(document.getElementById('habit-target').value, 10) || 1)),
+        unit: document.getElementById('habit-unit').value.trim(),
+      };
+      const existing = habits.find(h => h.id === editingId);
+      if (existing) Object.assign(existing, data);
+      else habits.push({ id: uid(), ...data });
+      saveHabits();
+      renderManage();
+      renderToday();
+    });
+
+    setupTabs(tab => { if (tab === 'today') renderToday(); });
+    renderManage();
+    renderToday();
+  </script>
+</body>
+</html>

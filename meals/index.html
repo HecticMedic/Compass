@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="compass-root" content="../">
+  <meta name="theme-color" content="#faf7f2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icon-180.png">
+  <link rel="stylesheet" href="../assets/style.css">
+  <title>Meals</title>
+  <style>
+    .week-nav { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 10px; }
+    .week-nav strong { font-size: 1rem; }
+    .day.today { border-color: var(--accent); }
+    .day h3 { margin: 0 0 8px; font-size: 1rem; display: flex; justify-content: space-between; }
+    .slot { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 8px; margin-top: 6px; }
+    .slot span { font-size: .85rem; color: var(--muted); }
+    .slot input { padding: 8px 10px; }
+    .slot input.recipe { border-color: var(--good); }
+  </style>
+</head>
+<body>
+  <header class="top"><a class="back" href="../">‹ Home</a><h1>Meals</h1></header>
+  <main>
+    <div class="tabs">
+      <button data-tab="plan">Plan</button>
+      <button data-tab="groceries">Groceries</button>
+      <button data-tab="recipes">Recipes</button>
+    </div>
+
+    <!-- Plan -->
+    <section id="tab-plan">
+      <div class="week-nav">
+        <button class="icon" id="prev-week" aria-label="Previous week">‹</button>
+        <strong id="week-label"></strong>
+        <button class="icon" id="next-week" aria-label="Next week">›</button>
+      </div>
+      <p class="muted small">Type a meal, or pick one of your saved recipes so its ingredients can go straight onto the grocery list.</p>
+      <div id="days"></div>
+      <button class="btn block" id="to-groceries">Add this week's ingredients to groceries</button>
+    </section>
+
+    <!-- Groceries -->
+    <section id="tab-groceries">
+      <form class="row" id="grocery-form">
+        <input class="grow" id="grocery-input" placeholder="Add an item…" autocomplete="off">
+        <button class="btn">Add</button>
+      </form>
+      <h2>To buy <span class="count" id="grocery-count"></span></h2>
+      <ul class="list" id="grocery-list"></ul>
+      <div id="grocery-done-wrap">
+        <h2>In the cart</h2>
+        <ul class="list" id="grocery-done"></ul>
+        <button class="btn secondary block" id="clear-done">Clear items in the cart</button>
+      </div>
+    </section>
+
+    <!-- Recipes -->
+    <section id="tab-recipes">
+      <button class="btn block" id="new-recipe">+ New recipe</button>
+      <h2>Saved recipes <span class="count" id="recipe-count"></span></h2>
+      <ul class="list" id="recipe-list"></ul>
+    </section>
+  </main>
+
+  <datalist id="recipe-names"></datalist>
+
+  <dialog id="recipe-dialog">
+    <form method="dialog" id="recipe-form">
+      <h3 id="recipe-dialog-title">New recipe</h3>
+      <label for="recipe-name">Name</label>
+      <input id="recipe-name" required placeholder="e.g. Chicken tacos">
+      <label for="recipe-ingredients">Ingredients (one per line)</label>
+      <textarea id="recipe-ingredients" placeholder="Chicken thighs&#10;Tortillas&#10;Limes"></textarea>
+      <label for="recipe-notes">Notes (optional)</label>
+      <textarea id="recipe-notes" style="min-height:70px" placeholder="Link, cooking time, tips…"></textarea>
+      <div class="actions">
+        <button class="btn danger" type="button" id="recipe-delete" style="margin-right:auto">Delete</button>
+        <button class="btn secondary" type="button" id="recipe-cancel">Cancel</button>
+        <button class="btn" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="../assets/common.js"></script>
+  <script>
+    const SLOTS = ['breakfast', 'lunch', 'dinner'];
+
+    let recipes = Store.get('meals:recipes', []);
+    let plan = Store.get('meals:plan', {});
+    let groceries = Store.get('meals:groceries', []);
+
+    const saveRecipes = () => Store.set('meals:recipes', recipes);
+    const savePlan = () => Store.set('meals:plan', plan);
+    const saveGroceries = () => Store.set('meals:groceries', groceries);
+
+    const findRecipe = name => {
+      const n = name.trim().toLowerCase();
+      return n ? recipes.find(r => r.name.toLowerCase() === n) : undefined;
+    };
+
+    // ---- Plan ----
+    function mondayOf(dateStr) {
+      const day = parseDate(dateStr).getDay(); // 0 = Sunday
+      return addDays(dateStr, day === 0 ? -6 : 1 - day);
+    }
+    let weekStart = mondayOf(isoDate());
+
+    const weekDates = () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+    function renderPlan() {
+      const dates = weekDates();
+      const fmt = s => parseDate(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      document.getElementById('week-label').textContent =
+        weekStart === mondayOf(isoDate()) ? 'This week' : `${fmt(dates[0])} – ${fmt(dates[6])}`;
+
+      const today = isoDate();
+      document.getElementById('days').innerHTML = dates.map(date => {
+        const meals = plan[date] || {};
+        const name = parseDate(date).toLocaleDateString(undefined, { weekday: 'long' });
+        return `
+          <div class="card day ${date === today ? 'today' : ''}">
+            <h3>${name} <span class="muted small">${fmt(date)}</span></h3>
+            ${SLOTS.map(slot => `
+              <div class="slot">
+                <span>${slot[0].toUpperCase() + slot.slice(1)}</span>
+                <input list="recipe-names" data-date="${date}" data-slot="${slot}"
+                       value="${esc(meals[slot] || '')}" placeholder="—" autocomplete="off"
+                       class="${findRecipe(meals[slot] || '') ? 'recipe' : ''}">
+              </div>`).join('')}
+          </div>`;
+      }).join('');
+    }
+
+    document.getElementById('days').addEventListener('change', e => {
+      const input = e.target.closest('input[data-date]');
+      if (!input) return;
+      const { date, slot } = input.dataset;
+      const value = input.value.trim();
+      plan[date] = { ...(plan[date] || {}), [slot]: value };
+      if (!value) delete plan[date][slot];
+      if (!Object.keys(plan[date]).length) delete plan[date];
+      input.classList.toggle('recipe', !!findRecipe(value));
+      savePlan();
+    });
+
+    document.getElementById('prev-week').addEventListener('click', () => { weekStart = addDays(weekStart, -7); renderPlan(); });
+    document.getElementById('next-week').addEventListener('click', () => { weekStart = addDays(weekStart, 7); renderPlan(); });
+
+    document.getElementById('to-groceries').addEventListener('click', () => {
+      const wanted = [];
+      for (const date of weekDates()) {
+        for (const slot of SLOTS) {
+          const recipe = findRecipe(plan[date]?.[slot] || '');
+          if (recipe) wanted.push(...recipe.ingredients);
+        }
+      }
+      const onList = new Set(groceries.filter(g => !g.done).map(g => g.name.toLowerCase()));
+      let added = 0;
+      for (const item of wanted) {
+        if (onList.has(item.toLowerCase())) continue;
+        onList.add(item.toLowerCase());
+        groceries.push({ id: uid(), name: item, done: false });
+        added++;
+      }
+      saveGroceries();
+      renderGroceries();
+      if (!wanted.length) alert('None of this week\'s meals are saved recipes yet. Add them under Recipes first.');
+      else alert(added ? `Added ${added} item${added === 1 ? '' : 's'} to groceries.` : 'Everything is already on the list.');
+    });
+
+    // ---- Groceries ----
+    function groceryItem(g) {
+      return `
+        <li class="${g.done ? 'done' : ''}" data-id="${g.id}">
+          <button class="check ${g.done ? 'on' : ''}" data-act="toggle" aria-label="Toggle">✓</button>
+          <span class="grow title">${esc(g.name)}</span>
+          <button class="icon" data-act="delete" aria-label="Delete">✕</button>
+        </li>`;
+    }
+
+    function renderGroceries() {
+      const todo = groceries.filter(g => !g.done);
+      const done = groceries.filter(g => g.done);
+      document.getElementById('grocery-count').textContent = todo.length ? `(${todo.length})` : '';
+      document.getElementById('grocery-list').innerHTML = todo.length
+        ? todo.map(groceryItem).join('')
+        : '<div class="empty">The list is empty 🎉</div>';
+      document.getElementById('grocery-done').innerHTML = done.map(groceryItem).join('');
+      document.getElementById('grocery-done-wrap').classList.toggle('hidden', !done.length);
+    }
+
+    document.getElementById('grocery-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const input = document.getElementById('grocery-input');
+      const name = input.value.trim();
+      if (!name) return;
+      groceries.push({ id: uid(), name, done: false });
+      input.value = '';
+      saveGroceries();
+      renderGroceries();
+    });
+
+    document.getElementById('tab-groceries').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const id = btn.closest('li').dataset.id;
+      if (btn.dataset.act === 'toggle') {
+        const g = groceries.find(x => x.id === id);
+        g.done = !g.done;
+      } else {
+        groceries = groceries.filter(x => x.id !== id);
+      }
+      saveGroceries();
+      renderGroceries();
+    });
+
+    document.getElementById('clear-done').addEventListener('click', () => {
+      groceries = groceries.filter(g => !g.done);
+      saveGroceries();
+      renderGroceries();
+    });
+
+    // ---- Recipes ----
+    const dialog = document.getElementById('recipe-dialog');
+    let editingId = null;
+
+    function renderRecipes() {
+      recipes.sort((a, b) => a.name.localeCompare(b.name));
+      document.getElementById('recipe-count').textContent = recipes.length ? `(${recipes.length})` : '';
+      document.getElementById('recipe-list').innerHTML = recipes.length
+        ? recipes.map(r => `
+            <li data-id="${r.id}" style="cursor:pointer">
+              <div class="grow">
+                <div class="title">${esc(r.name)}</div>
+                <div class="muted small">${r.ingredients.length} ingredient${r.ingredients.length === 1 ? '' : 's'}</div>
+              </div>
+              <span class="muted">›</span>
+            </li>`).join('')
+        : '<div class="empty">No recipes yet. Add the meals you cook often.</div>';
+      document.getElementById('recipe-names').innerHTML =
+        recipes.map(r => `<option value="${esc(r.name)}"></option>`).join('');
+    }
+
+    function openRecipe(recipe) {
+      editingId = recipe?.id || null;
+      document.getElementById('recipe-dialog-title').textContent = recipe ? 'Edit recipe' : 'New recipe';
+      document.getElementById('recipe-name').value = recipe?.name || '';
+      document.getElementById('recipe-ingredients').value = (recipe?.ingredients || []).join('\n');
+      document.getElementById('recipe-notes').value = recipe?.notes || '';
+      document.getElementById('recipe-delete').classList.toggle('hidden', !recipe);
+      dialog.showModal();
+    }
+
+    document.getElementById('new-recipe').addEventListener('click', () => openRecipe(null));
+    document.getElementById('recipe-list').addEventListener('click', e => {
+      const li = e.target.closest('li[data-id]');
+      if (li) openRecipe(recipes.find(r => r.id === li.dataset.id));
+    });
+    document.getElementById('recipe-cancel').addEventListener('click', () => dialog.close());
+
+    document.getElementById('recipe-delete').addEventListener('click', () => {
+      if (!confirm('Delete this recipe?')) return;
+      recipes = recipes.filter(r => r.id !== editingId);
+      saveRecipes();
+      renderRecipes();
+      renderPlan();
+      dialog.close();
+    });
+
+    document.getElementById('recipe-form').addEventListener('submit', () => {
+      const name = document.getElementById('recipe-name').value.trim();
+      if (!name) return;
+      const ingredients = document.getElementById('recipe-ingredients').value
+        .split('\n').map(s => s.trim()).filter(Boolean);
+      const notes = document.getElementById('recipe-notes').value.trim();
+      const existing = recipes.find(r => r.id === editingId);
+      if (existing) Object.assign(existing, { name, ingredients, notes });
+      else recipes.push({ id: uid(), name, ingredients, notes });
+      saveRecipes();
+      renderRecipes();
+      renderPlan();
+    });
+
+    setupTabs();
+    renderRecipes();
+    renderPlan();
+    renderGroceries();
+    document.querySelector('.day.today')?.scrollIntoView({ block: 'center' });
+  </script>
+</body>
+</html>

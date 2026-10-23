@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="compass-root" content="../">
+  <meta name="theme-color" content="#faf7f2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icon-180.png">
+  <link rel="stylesheet" href="../assets/style.css">
+  <title>Budget</title>
+  <style>
+    .month-nav { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 8px; }
+    .total { text-align: center; padding: 18px 14px; }
+    .total .big { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .total .bar { margin: 12px 0 6px; height: 10px; }
+    .cat-row { margin-bottom: 14px; }
+    .cat-row .row { justify-content: space-between; margin-bottom: 5px; }
+    .amount { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+    .amount-input { font-size: 1.8rem !important; font-weight: 700; text-align: center; padding: 14px; }
+    .cat-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .cat-picker button {
+      font: inherit; font-size: .85rem; padding: 10px 4px; border-radius: 12px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    }
+    .cat-picker button .e { display: block; font-size: 1.4rem; }
+    .cat-picker button.active { border-color: var(--accent); background: var(--accent-soft); }
+    .cat-edit { display: grid; grid-template-columns: 52px 1fr 100px 36px; gap: 6px; margin-bottom: 8px; align-items: center; }
+    .cat-edit input { padding: 8px; }
+    .cat-edit input.emoji { text-align: center; }
+  </style>
+</head>
+<body>
+  <header class="top"><a class="back" href="../">‹ Home</a><h1>Budget</h1></header>
+  <main>
+    <div class="tabs">
+      <button data-tab="overview">Overview</button>
+      <button data-tab="add">Add</button>
+      <button data-tab="settings">Categories</button>
+    </div>
+
+    <!-- Overview -->
+    <section id="tab-overview">
+      <div class="month-nav">
+        <button class="icon" id="prev-month" aria-label="Previous month">‹</button>
+        <strong id="month-label"></strong>
+        <button class="icon" id="next-month" aria-label="Next month">›</button>
+      </div>
+      <div class="card total" id="total"></div>
+      <h2>By category</h2>
+      <div class="card" id="by-cat"></div>
+      <h2>Spending <span class="count" id="expense-count"></span></h2>
+      <ul class="list" id="expenses"></ul>
+    </section>
+
+    <!-- Add -->
+    <section id="tab-add">
+      <form id="add-form" class="card">
+        <label for="amount">Amount</label>
+        <input id="amount" class="amount-input" inputmode="decimal" placeholder="0.00" autocomplete="off" required>
+        <label>Category</label>
+        <div class="cat-picker" id="cat-picker"></div>
+        <label for="note">Note (optional)</label>
+        <input id="note" placeholder="e.g. Target, birthday gift" autocomplete="off">
+        <label for="date">Date</label>
+        <input type="date" id="date" required>
+        <button class="btn block" style="margin-top:16px">Save</button>
+        <p class="small" id="added-msg" style="text-align:center;color:var(--good);min-height:1.4em;margin:8px 0 0"></p>
+      </form>
+    </section>
+
+    <!-- Categories -->
+    <section id="tab-settings">
+      <p class="muted small">Set a monthly limit for each category. Leave it at 0 for no limit.</p>
+      <div class="card">
+        <div class="cat-edit small muted"><span>Icon</span><span>Name</span><span>Monthly</span><span></span></div>
+        <div id="cat-edit-list"></div>
+        <button class="btn secondary block" id="add-cat" style="margin-top:6px">+ Add category</button>
+      </div>
+      <div class="card">
+        <label for="currency" style="margin-top:0">Currency</label>
+        <select id="currency">
+          <option>USD</option><option>CAD</option><option>GBP</option><option>EUR</option>
+          <option>AUD</option><option>NZD</option><option>MXN</option><option>INR</option>
+        </select>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="expense-dialog">
+    <h3 id="ed-title"></h3>
+    <p class="muted" id="ed-detail" style="margin:0"></p>
+    <div class="actions">
+      <button class="btn danger" id="ed-delete" style="margin-right:auto">Delete</button>
+      <button class="btn secondary" id="ed-close">Close</button>
+    </div>
+  </dialog>
+
+  <script src="../assets/common.js"></script>
+  <script>
+    const DEFAULT_CATEGORIES = [
+      { id: 'groceries', emoji: '🛒', name: 'Groceries', budget: 0 },
+      { id: 'dining', emoji: '🍽️', name: 'Eating out', budget: 0 },
+      { id: 'home', emoji: '🏠', name: 'Household', budget: 0 },
+      { id: 'transport', emoji: '🚗', name: 'Transport', budget: 0 },
+      { id: 'bills', emoji: '🧾', name: 'Bills', budget: 0 },
+      { id: 'personal', emoji: '💅', name: 'Personal', budget: 0 },
+      { id: 'kids', emoji: '🎁', name: 'Gifts', budget: 0 },
+      { id: 'health', emoji: '💊', name: 'Health', budget: 0 },
+      { id: 'other', emoji: '✨', name: 'Other', budget: 0 },
+    ];
+
+    let categories = Store.get('budget:categories', DEFAULT_CATEGORIES);
+    let expenses = Store.get('budget:expenses', []);
+    let currency = Store.get('budget:currency', 'USD');
+
+    const saveCategories = () => Store.set('budget:categories', categories);
+    const saveExpenses = () => Store.set('budget:expenses', expenses);
+
+    let money = new Intl.NumberFormat(undefined, { style: 'currency', currency });
+    const catById = id => categories.find(c => c.id === id) || { id, emoji: '❔', name: 'Uncategorized', budget: 0 };
+
+    // ---- Overview ----
+    let month = isoDate().slice(0, 7);
+
+    function shiftMonth(n) {
+      const [y, m] = month.split('-').map(Number);
+      const d = new Date(y, m - 1 + n, 1);
+      month = isoDate(d).slice(0, 7);
+      renderOverview();
+    }
+
+    function renderOverview() {
+      const [y, m] = month.split('-').map(Number);
+      document.getElementById('month-label').textContent =
+        new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+      const items = expenses.filter(e => e.date.startsWith(month))
+        .sort((a, b) => b.date.localeCompare(a.date) || b.created - a.created);
+      const spent = items.reduce((s, e) => s + e.amount, 0);
+      const budget = categories.reduce((s, c) => s + (c.budget || 0), 0);
+
+      const pct = budget ? Math.min(100, (spent / budget) * 100) : 0;
+      document.getElementById('total').innerHTML = `
+        <div class="muted small">Spent</div>
+        <div class="big">${money.format(spent)}</div>
+        ${budget ? `
+          <div class="bar ${spent > budget ? 'over' : ''}"><span style="width:${pct}%"></span></div>
+          <div class="small ${spent > budget ? '' : 'muted'}" style="${spent > budget ? 'color:var(--bad)' : ''}">
+            ${spent > budget
+              ? `${money.format(spent - budget)} over the ${money.format(budget)} budget`
+              : `${money.format(budget - spent)} left of ${money.format(budget)}`}
+          </div>` : '<div class="muted small">Set monthly limits under Categories</div>'}`;
+
+      // Per category, including any no-longer-listed category that still has spending.
+      const totals = {};
+      items.forEach(e => { totals[e.cat] = (totals[e.cat] || 0) + e.amount; });
+      const rows = [...categories.map(c => c.id), ...Object.keys(totals).filter(id => !categories.some(c => c.id === id))]
+        .map(id => ({ cat: catById(id), spent: totals[id] || 0 }))
+        .filter(r => r.spent || r.cat.budget)
+        .sort((a, b) => b.spent - a.spent);
+
+      document.getElementById('by-cat').innerHTML = rows.length ? rows.map(({ cat, spent }) => {
+        const over = cat.budget && spent > cat.budget;
+        const width = cat.budget ? Math.min(100, (spent / cat.budget) * 100) : (spent / Math.max(...rows.map(r => r.spent))) * 100;
+        return `
+          <div class="cat-row">
+            <div class="row">
+              <span>${cat.emoji} ${esc(cat.name)}</span>
+              <span class="amount">${money.format(spent)}${cat.budget ? `<span class="muted" style="font-weight:400"> / ${money.format(cat.budget)}</span>` : ''}</span>
+            </div>
+            <div class="bar ${over ? 'over' : ''}"><span style="width:${width}%;${cat.budget ? '' : 'background:var(--muted)'}"></span></div>
+          </div>`;
+      }).join('') : '<div class="muted small" style="text-align:center">Nothing yet this month.</div>';
+
+      document.getElementById('expense-count').textContent = items.length ? `(${items.length})` : '';
+      document.getElementById('expenses').innerHTML = items.length ? items.map(e => {
+        const cat = catById(e.cat);
+        return `
+          <li data-id="${e.id}" style="cursor:pointer">
+            <span style="font-size:1.4rem">${cat.emoji}</span>
+            <div class="grow">
+              <div class="title">${esc(e.note || cat.name)}</div>
+              <div class="small muted">${friendlyDate(e.date)}${e.note ? ' · ' + esc(cat.name) : ''}</div>
+            </div>
+            <span class="amount">${money.format(e.amount)}</span>
+          </li>`;
+      }).join('') : '<div class="empty">No spending logged for this month.</div>';
+    }
+
+    document.getElementById('prev-month').addEventListener('click', () => shiftMonth(-1));
+    document.getElementById('next-month').addEventListener('click', () => shiftMonth(1));
+
+    const expenseDialog = document.getElementById('expense-dialog');
+    let selectedExpense = null;
+    document.getElementById('expenses').addEventListener('click', e => {
+      const li = e.target.closest('li[data-id]');
+      if (!li) return;
+      selectedExpense = expenses.find(x => x.id === li.dataset.id);
+      const cat = catById(selectedExpense.cat);
+      document.getElementById('ed-title').textContent = `${money.format(selectedExpense.amount)} · ${cat.emoji} ${cat.name}`;
+      document.getElementById('ed-detail').textContent =
+        `${selectedExpense.note ? selectedExpense.note + ' · ' : ''}${parseDate(selectedExpense.date).toLocaleDateString(undefined, { dateStyle: 'medium' })}`;
+      expenseDialog.showModal();
+    });
+    document.getElementById('ed-close').addEventListener('click', () => expenseDialog.close());
+    document.getElementById('ed-delete').addEventListener('click', () => {
+      expenses = expenses.filter(x => x !== selectedExpense);
+      saveExpenses();
+      renderOverview();
+      expenseDialog.close();
+    });
+
+    // ---- Add ----
+    let pickedCat = null;
+
+    function renderPicker() {
+      if (!categories.some(c => c.id === pickedCat)) pickedCat = categories[0]?.id || null;
+      document.getElementById('cat-picker').innerHTML = categories.map(c => `
+        <button type="button" data-id="${c.id}" class="${c.id === pickedCat ? 'active' : ''}">
+          <span class="e">${c.emoji}</span>${esc(c.name)}
+        </button>`).join('');
+    }
+
+    document.getElementById('cat-picker').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-id]');
+      if (!btn) return;
+      pickedCat = btn.dataset.id;
+      renderPicker();
+    });
+
+    document.getElementById('add-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const raw = document.getElementById('amount').value.replace(/[^0-9.,]/g, '').replace(',', '.');
+      const amount = Math.round(parseFloat(raw) * 100) / 100;
+      if (!amount || amount <= 0) return alert('Enter an amount, like 12.50');
+      if (!pickedCat) return alert('Add a category first.');
+      const date = document.getElementById('date').value || isoDate();
+      expenses.push({
+        id: uid(), amount, cat: pickedCat, date, created: Date.now(),
+        note: document.getElementById('note').value.trim(),
+      });
+      saveExpenses();
+      document.getElementById('amount').value = '';
+      document.getElementById('note').value = '';
+      document.getElementById('added-msg').textContent = `Saved ${money.format(amount)} ✓`;
+      setTimeout(() => { document.getElementById('added-msg').textContent = ''; }, 2500);
+      month = date.slice(0, 7);
+      renderOverview();
+    });
+
+    // ---- Categories ----
+    function renderCatEdit() {
+      document.getElementById('cat-edit-list').innerHTML = categories.map(c => `
+        <div class="cat-edit" data-id="${c.id}">
+          <input class="emoji" data-field="emoji" value="${esc(c.emoji)}" maxlength="4" aria-label="Icon">
+          <input data-field="name" value="${esc(c.name)}" aria-label="Name">
+          <input data-field="budget" inputmode="decimal" value="${c.budget || 0}" aria-label="Monthly budget">
+          <button class="icon" data-act="remove" aria-label="Remove">✕</button>
+        </div>`).join('');
+    }
+
+    document.getElementById('cat-edit-list').addEventListener('change', e => {
+      const input = e.target.closest('input[data-field]');
+      if (!input) return;
+      const cat = categories.find(c => c.id === input.closest('.cat-edit').dataset.id);
+      const field = input.dataset.field;
+      if (field === 'budget') {
+        cat.budget = Math.max(0, Math.round(parseFloat(input.value.replace(',', '.')) * 100) / 100 || 0);
+        input.value = cat.budget;
+      } else {
+        cat[field] = input.value.trim() || (field === 'emoji' ? '•' : 'Untitled');
+      }
+      saveCategories();
+      renderPicker();
+      renderOverview();
+    });
+
+    document.getElementById('cat-edit-list').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-act="remove"]');
+      if (!btn) return;
+      const id = btn.closest('.cat-edit').dataset.id;
+      const cat = categories.find(c => c.id === id);
+      if (!confirm(`Remove "${cat.name}"? Past spending in it stays, shown as Uncategorized.`)) return;
+      categories = categories.filter(c => c.id !== id);
+      saveCategories();
+      renderCatEdit();
+      renderPicker();
+      renderOverview();
+    });
+
+    document.getElementById('add-cat').addEventListener('click', () => {
+      categories.push({ id: uid(), emoji: '🏷️', name: 'New category', budget: 0 });
+      saveCategories();
+      renderCatEdit();
+      renderPicker();
+      const inputs = document.querySelectorAll('#cat-edit-list input[data-field="name"]');
+      inputs[inputs.length - 1].select();
+    });
+
+    const currencySelect = document.getElementById('currency');
+    if (![...currencySelect.options].some(o => o.value === currency)) currencySelect.add(new Option(currency));
+    currencySelect.value = currency;
+    currencySelect.addEventListener('change', () => {
+      currency = currencySelect.value;
+      Store.set('budget:currency', currency);
+      money = new Intl.NumberFormat(undefined, { style: 'currency', currency });
+      renderOverview();
+    });
+
+    document.getElementById('date').value = isoDate();
+    setupTabs(tab => {
+      if (tab === 'add') document.getElementById('date').value ||= isoDate();
+    });
+    renderPicker();
+    renderCatEdit();
+    renderOverview();
+  </script>
+</body>
+</html>
