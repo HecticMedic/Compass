@@ -1,6 +1,6 @@
 # Compass
 
-Four small everyday apps in one home-screen web app. There are no accounts and no server, and no AI is involved. Everything is saved on the phone it's used on.
+Four small everyday apps in one home-screen web app, with Claude built in. There are no accounts and no server. Everything is saved on the phone it's used on.
 
 | App | What it does |
 | --- | --- |
@@ -8,6 +8,32 @@ Four small everyday apps in one home-screen web app. There are no accounts and n
 | 🧺 **Chores** | Regular household jobs (daily, weekly, monthly…), grouped into Overdue, Today, This week and Later. Ticking off a repeating chore schedules the next one. |
 | 💳 **Budget** | Log spending by category, set monthly limits, and see what's left this month. |
 | 🌱 **Habits** | Daily check-ins with counters (e.g. 8 glasses of water), streaks and a 7-day history. |
+
+## ✨ Claude in Compass
+
+Once connected, Claude works inside the apps, so there's no separate Claude app to open.
+
+- **Ask Compass** (on the home screen) is a full chat with Claude: questions, advice, writing, ideas, web search, and photos (snap a receipt, a recipe or a handwritten list). It can also **act on the apps** when asked, e.g. "add milk and eggs to groceries", "plan dinners this week using my recipes", "I spent $40 at Target on household stuff", "mark laundry done", or "start tracking water, 8 glasses a day". Little green chips show what it changed.
+- **✨ buttons in each app:**
+  - Meals: fill the week's empty dinners, turn a recipe link, pasted text or dish name into a saved recipe, and sort the grocery list by store aisle.
+  - Chores: suggest chores the home might be missing.
+  - Budget: quick-add from plain words ("Target 42.10 household"), and a friendly summary of the month.
+  - Habits: a short reflection on the last two weeks.
+
+### Setting it up (about 3 minutes, once)
+
+1. Go to [console.anthropic.com](https://console.anthropic.com), sign in, and add a payment method under **Billing**. API use is billed separately from a Claude.ai subscription.
+2. Recommended: under **Limits**, set a monthly spend limit (e.g. $10) so there are no surprises.
+3. Create an API key under **API keys**.
+4. On her phone, open Compass, tap **✨ Add Claude to Compass**, and paste the key. Compass checks the key before saving it.
+
+**Cost:** Compass uses Claude Opus 5.5 ($4 per million input tokens, $20 per million output tokens). A typical chat or ✨ button costs a few cents. Long chats with lots of photos cost more, so tap ✎ to start a fresh chat for a new topic.
+
+**Privacy and safety:**
+- The key is stored only on her phone. It's never in this repo or in backup files.
+- Anyone who can unlock her phone and open Compass can use the key. If the phone is lost, delete the key at console.anthropic.com.
+- Her app data is sent to Claude only when she asks something or taps a ✨ button.
+- If web search is turned off for your Anthropic organization, Compass notices and carries on without it.
 
 ## Putting it online (one time, about 2 minutes)
 
@@ -31,4 +57,4 @@ After that it opens full-screen like a normal app and works offline.
 
 ## Making changes
 
-It's plain HTML, CSS and JavaScript with no build step. Each app is one file (`meals/index.html` and so on), and shared styles and helpers live in `assets/`. When you change files, bump `VERSION` in `sw.js` so installed copies download the update.
+It's plain HTML, CSS and JavaScript with no build step. Each app is one file (`meals/index.html` and so on), and shared styles and helpers live in `assets/`. The Claude features live in `assets/ai.js` (chat tools, prompts, and ✨ helpers) and `assistant/index.html` (the chat screen). The official Anthropic JavaScript SDK (`@anthropic-ai/sdk` 0.133.0) is bundled into `assets/vendor/anthropic-sdk.js`. When you change files, bump `VERSION` in `sw.js` so installed copies download the update.

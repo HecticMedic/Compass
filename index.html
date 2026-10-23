@@ -24,6 +24,14 @@
     .app .emoji { font-size: 2rem; }
     .app strong { font-size: 1.05rem; }
     .app .status { color: var(--muted); font-size: .85rem; margin-top: auto; }
+    .ask {
+      display: block; text-decoration: none; color: inherit; margin-bottom: 14px;
+      background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 18px; padding: 16px;
+    }
+    .ask strong { font-size: 1.1rem; }
+    .ask p { margin: 4px 0 12px; color: var(--muted); font-size: .9rem; }
+    .ask form { display: flex; gap: 8px; }
+    .ask input { border-radius: 999px; }
     .backup { margin-top: 28px; }
     .backup p { margin: 0 0 10px; }
   </style>
@@ -32,6 +40,19 @@
   <header class="top"><h1>Compass</h1></header>
   <main>
     <p class="greeting" id="greeting"></p>
+
+    <div class="ask ai-only hidden">
+      <strong>✨ Ask Compass</strong>
+      <p>Ask anything, or tell me what to add, plan or log.</p>
+      <form action="assistant/" method="get">
+        <input name="q" placeholder="e.g. Plan dinners for this week" autocomplete="off" enterkeyhint="send">
+        <button class="btn">Ask</button>
+      </form>
+    </div>
+    <a class="ask" id="ask-setup" href="assistant/">
+      <strong>✨ Add Claude to Compass</strong>
+      <p style="margin-bottom:0">Chat, plan meals, sort groceries and more. Takes about 3 minutes to set up.</p>
+    </a>
 
     <div class="apps">
       <a class="app" href="meals/">
@@ -65,6 +86,11 @@
 
   <script src="assets/common.js"></script>
   <script>
+    if (hasAIKey()) document.getElementById('ask-setup').classList.add('hidden');
+    document.querySelector('.ask form').addEventListener('submit', e => {
+      if (!e.target.q.value.trim()) e.preventDefault();
+    });
+
     const hour = new Date().getHours();
     document.getElementById('greeting').textContent =
       (hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening') + ' ✨';

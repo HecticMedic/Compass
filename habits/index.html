@@ -48,6 +48,8 @@
       </div>
       <p class="summary" id="summary"></p>
       <div id="habit-cards"></div>
+      <button class="btn secondary block ai-only hidden" id="ai-reflect" style="margin-top:8px">✨ Reflect on my last two weeks</button>
+      <div class="card hidden" id="reflection" style="white-space:pre-wrap;margin-top:10px"></div>
     </section>
 
     <!-- Manage -->
@@ -268,6 +270,21 @@
       saveHabits();
       renderManage();
       renderToday();
+    });
+
+    // ---- ✨ Reflection ----
+    document.getElementById('ai-reflect').addEventListener('click', e => {
+      if (!habits.length) return alert('Add a habit first.');
+      const box = document.getElementById('reflection');
+      withAI(e.currentTarget, 'Reflecting…', async AI => {
+        box.classList.remove('hidden');
+        box.textContent = '';
+        const days = Array.from({ length: 14 }, (_, i) => addDays(isoDate(), -13 + i));
+        await AI.habitReflection(habits.map(h => ({
+          habit: h.name, target_per_day: h.target, unit: h.unit,
+          days: Object.fromEntries(days.map(d => [d, count(d, h.id)])),
+        })), delta => { box.textContent += delta; });
+      });
     });
 
     setupTabs(tab => { if (tab === 'today') renderToday(); });

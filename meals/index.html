@@ -20,6 +20,10 @@
     .slot span { font-size: .85rem; color: var(--muted); }
     .slot input { padding: 8px 10px; }
     .slot input.recipe { border-color: var(--good); }
+    .list li.section-head {
+      background: none; border: 0; min-height: 0; padding: 10px 2px 2px; margin: 0;
+      font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+    }
   </style>
 </head>
 <body>
@@ -39,6 +43,7 @@
         <button class="icon" id="next-week" aria-label="Next week">›</button>
       </div>
       <p class="muted small">Type a meal, or pick one of your saved recipes so its ingredients can go straight onto the grocery list.</p>
+      <button class="btn secondary block ai-only hidden" id="ai-plan" style="margin-bottom:10px">✨ Fill empty dinners for me</button>
       <div id="days"></div>
       <button class="btn block" id="to-groceries">Add this week's ingredients to groceries</button>
     </section>
@@ -50,6 +55,7 @@
         <button class="btn">Add</button>
       </form>
       <h2>To buy <span class="count" id="grocery-count"></span></h2>
+      <button class="btn secondary block ai-only hidden" id="ai-sort" style="margin-bottom:10px">✨ Sort by store aisle</button>
       <ul class="list" id="grocery-list"></ul>
       <div id="grocery-done-wrap">
         <h2>In the cart</h2>
@@ -71,6 +77,13 @@
   <dialog id="recipe-dialog">
     <form method="dialog" id="recipe-form">
       <h3 id="recipe-dialog-title">New recipe</h3>
+      <div class="ai-only hidden">
+        <label for="recipe-source">✨ Paste a link, recipe text, or just a dish name</label>
+        <div class="row">
+          <input class="grow" id="recipe-source" placeholder="https://… or &quot;lasagna&quot;" autocomplete="off">
+          <button class="btn secondary" type="button" id="ai-recipe">Fill in</button>
+        </div>
+      </div>
       <label for="recipe-name">Name</label>
       <input id="recipe-name" required placeholder="e.g. Chicken tacos">
       <label for="recipe-ingredients">Ingredients (one per line)</label>
@@ -186,8 +199,12 @@
       const todo = groceries.filter(g => !g.done);
       const done = groceries.filter(g => g.done);
       document.getElementById('grocery-count').textContent = todo.length ? `(${todo.length})` : '';
+      // After an aisle sort, items carry a section; new items go at the end.
+      const sections = [...new Set(todo.map(g => g.section || ''))];
+      const grouped = sections.length > 1 || sections[0];
       document.getElementById('grocery-list').innerHTML = todo.length
-        ? todo.map(groceryItem).join('')
+        ? sections.map(sec => (grouped ? `<li class="section-head">${esc(sec || 'Other')}</li>` : '') +
+            todo.filter(g => (g.section || '') === sec).map(groceryItem).join('')).join('')
         : '<div class="empty">The list is empty 🎉</div>';
       document.getElementById('grocery-done').innerHTML = done.map(groceryItem).join('');
       document.getElementById('grocery-done-wrap').classList.toggle('hidden', !done.length);
@@ -252,6 +269,7 @@
       document.getElementById('recipe-ingredients').value = (recipe?.ingredients || []).join('\n');
       document.getElementById('recipe-notes').value = recipe?.notes || '';
       document.getElementById('recipe-delete').classList.toggle('hidden', !recipe);
+      document.getElementById('recipe-source').value = '';
       dialog.showModal();
     }
 
@@ -283,6 +301,56 @@
       saveRecipes();
       renderRecipes();
       renderPlan();
+    });
+
+    // ---- ✨ Claude helpers ----
+    document.getElementById('ai-plan').addEventListener('click', e => {
+      const today = isoDate();
+      const slots = weekDates().filter(d => d >= today && !plan[d]?.dinner).map(date => ({ date, slot: 'dinner' }));
+      if (!slots.length) return alert('Every dinner this week is already planned.');
+      const wishes = prompt('Anything to keep in mind? (e.g. quick meals, no fish, use up spinach)', '');
+      if (wishes === null) return;
+      withAI(e.currentTarget, 'Planning…', async AI => {
+        const recent = Object.entries(plan).filter(([d]) => d >= addDays(today, -14) && d < today)
+          .flatMap(([, m]) => Object.values(m));
+        const meals = await AI.suggestMeals({
+          slots, wishes,
+          recent,
+          recipes: recipes.map(r => r.name),
+        });
+        for (const { date, slot, meal } of meals) plan[date] = { ...(plan[date] || {}), [slot]: meal.trim() };
+        savePlan();
+        renderPlan();
+      });
+    });
+
+    document.getElementById('ai-sort').addEventListener('click', e => {
+      const todo = groceries.filter(g => !g.done);
+      if (todo.length < 2) return;
+      withAI(e.currentTarget, 'Sorting…', async AI => {
+        const sections = await AI.sortGroceries(todo.map(g => g.name));
+        const order = new Map();
+        sections.forEach(sec => sec.items.forEach(name => {
+          if (!order.has(name.toLowerCase())) order.set(name.toLowerCase(), { section: sec.name, rank: order.size });
+        }));
+        // Items Claude didn't mention keep their place at the end.
+        const rank = g => order.get(g.name.toLowerCase())?.rank ?? Infinity;
+        todo.forEach(g => { g.section = order.get(g.name.toLowerCase())?.section || ''; });
+        groceries = [...todo.sort((a, b) => rank(a) - rank(b)), ...groceries.filter(g => g.done)];
+        saveGroceries();
+        renderGroceries();
+      });
+    });
+
+    document.getElementById('ai-recipe').addEventListener('click', e => {
+      const source = document.getElementById('recipe-source').value.trim();
+      if (!source) return document.getElementById('recipe-source').focus();
+      withAI(e.currentTarget, '…', async AI => {
+        const r = await AI.importRecipe(source);
+        document.getElementById('recipe-name').value = r.name;
+        document.getElementById('recipe-ingredients').value = r.ingredients.join('\n');
+        document.getElementById('recipe-notes').value = r.notes;
+      });
     });
 
     setupTabs();

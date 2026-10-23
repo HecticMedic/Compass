@@ -74,6 +74,59 @@ function friendlyDate(s) {
   return parseDate(s).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+// Next due date for a repeating chore, counted from `from`.
+function nextDue(repeat, from) {
+  switch (repeat) {
+    case 'day': return addDays(from, 1);
+    case '3day': return addDays(from, 3);
+    case 'week': return addDays(from, 7);
+    case '2week': return addDays(from, 14);
+    case 'month':
+    case '3month': {
+      const d = parseDate(from);
+      const day = d.getDate();
+      d.setDate(1);
+      d.setMonth(d.getMonth() + (repeat === 'month' ? 1 : 3));
+      // Keep the 31st from spilling into the next month.
+      const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      d.setDate(Math.min(day, last));
+      return isoDate(d);
+    }
+  }
+}
+
+// ---- Claude ----
+// The API key lives outside the "compass:" namespace so backups never include it.
+const AI_KEY = 'compass-secret:apiKey';
+
+function hasAIKey() {
+  try { return !!localStorage.getItem(AI_KEY); } catch { return false; }
+}
+
+const COMPASS_ROOT = document.querySelector('meta[name="compass-root"]')?.content || './';
+
+// Loads assets/ai.js on first use, so pages stay light until Claude is needed.
+function getAI() {
+  return import(new URL(COMPASS_ROOT + 'assets/ai.js', location.href).href);
+}
+
+// Runs an AI action on a button: shows a busy label, reports errors kindly.
+async function withAI(button, busyLabel, fn) {
+  const label = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = busyLabel;
+  try {
+    const AI = await getAI();
+    await fn(AI);
+  } catch (err) {
+    alert(err.friendly || 'Something went wrong talking to Claude. Please try again.');
+    console.error(err);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = label;
+  }
+}
+
 // Wires up a .tabs bar: buttons with data-tab="x" show the element #tab-x.
 function setupTabs(onChange) {
   const buttons = document.querySelectorAll('.tabs button');
@@ -87,7 +140,11 @@ function setupTabs(onChange) {
   return show;
 }
 
+// Shows elements marked .ai-only once a Claude key is set up.
+document.addEventListener('DOMContentLoaded', () => {
+  if (hasAIKey()) document.querySelectorAll('.ai-only').forEach(el => el.classList.remove('hidden'));
+});
+
 if ('serviceWorker' in navigator) {
-  const root = document.querySelector('meta[name="compass-root"]')?.content || './';
-  navigator.serviceWorker.register(root + 'sw.js').catch(() => {});
+  navigator.serviceWorker.register(COMPASS_ROOT + 'sw.js').catch(() => {});
 }

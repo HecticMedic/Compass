@@ -49,6 +49,8 @@
         <button class="icon" id="next-month" aria-label="Next month">›</button>
       </div>
       <div class="card total" id="total"></div>
+      <button class="btn secondary block ai-only hidden" id="ai-insights" style="margin-bottom:10px">✨ How's this month going?</button>
+      <div class="card hidden" id="insights" style="white-space:pre-wrap"></div>
       <h2>By category</h2>
       <div class="card" id="by-cat"></div>
       <h2>Spending <span class="count" id="expense-count"></span></h2>
@@ -57,6 +59,13 @@
 
     <!-- Add -->
     <section id="tab-add">
+      <form id="quick-form" class="card ai-only hidden">
+        <label for="quick" style="margin-top:0">✨ Quick add: just type it</label>
+        <div class="row">
+          <input class="grow" id="quick" placeholder="e.g. Target 42.10 household stuff" autocomplete="off">
+          <button class="btn secondary" id="quick-btn">Fill in</button>
+        </div>
+      </form>
       <form id="add-form" class="card">
         <label for="amount">Amount</label>
         <input id="amount" class="amount-input" inputmode="decimal" placeholder="0.00" autocomplete="off" required>
@@ -129,6 +138,7 @@
       const [y, m] = month.split('-').map(Number);
       const d = new Date(y, m - 1 + n, 1);
       month = isoDate(d).slice(0, 7);
+      document.getElementById('insights').classList.add('hidden');
       renderOverview();
     }
 
@@ -308,6 +318,41 @@
       Store.set('budget:currency', currency);
       money = new Intl.NumberFormat(undefined, { style: 'currency', currency });
       renderOverview();
+    });
+
+    // ---- ✨ Claude helpers ----
+    document.getElementById('quick-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const text = document.getElementById('quick').value.trim();
+      if (!text || !categories.length) return;
+      withAI(document.getElementById('quick-btn'), '…', async AI => {
+        const x = await AI.parseExpense(text, categories);
+        document.getElementById('amount').value = x.amount.toFixed(2);
+        document.getElementById('note').value = x.note;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(x.date)) document.getElementById('date').value = x.date;
+        pickedCat = x.category;
+        renderPicker();
+        document.getElementById('quick').value = '';
+        document.getElementById('added-msg').textContent = 'Check it, then tap Save';
+      });
+    });
+
+    document.getElementById('ai-insights').addEventListener('click', e => {
+      const box = document.getElementById('insights');
+      withAI(e.currentTarget, 'Looking…', async AI => {
+        box.classList.remove('hidden');
+        box.textContent = '';
+        const [y, m] = month.split('-').map(Number);
+        const prev = isoDate(new Date(y, m - 2, 1)).slice(0, 7);
+        const pick = ym => expenses.filter(e => e.date.startsWith(ym))
+          .map(e => ({ amount: e.amount, category: catById(e.cat).name, note: e.note, date: e.date }));
+        await AI.budgetInsights({
+          month, currency,
+          monthly_limits: categories.filter(c => c.budget).map(c => ({ category: c.name, limit: c.budget })),
+          this_month: pick(month),
+          previous_month: pick(prev),
+        }, delta => { box.textContent += delta; });
+      });
     });
 
     document.getElementById('date').value = isoDate();

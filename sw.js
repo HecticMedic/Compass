@@ -1,12 +1,14 @@
 // Offline support: serve from cache, refresh the cache in the background.
 // Bump VERSION when files change so phones pick up the new copy.
-const VERSION = 'compass-v1';
+const VERSION = 'compass-v2';
 const FILES = [
   './',
   'index.html',
   'manifest.webmanifest',
   'assets/style.css',
   'assets/common.js',
+  'assets/ai.js',
+  'assets/vendor/anthropic-sdk.js',
   'assets/icon.svg',
   'assets/icon-180.png',
   'assets/icon-192.png',
@@ -15,6 +17,7 @@ const FILES = [
   'chores/',
   'budget/',
   'habits/',
+  'assistant/',
 ];
 
 self.addEventListener('install', event => {

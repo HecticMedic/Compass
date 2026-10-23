@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="compass-root" content="../">
+  <meta name="theme-color" content="#faf7f2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icon-180.png">
+  <link rel="stylesheet" href="../assets/style.css">
+  <title>Ask Compass</title>
+  <style>
+    body { padding-bottom: calc(env(safe-area-inset-bottom) + 96px); }
+    header.top .icon { color: var(--accent); font-size: 1.2rem; }
+
+    #thread { display: flex; flex-direction: column; gap: 12px; padding-bottom: 8px; }
+    .msg { max-width: 88%; overflow-wrap: anywhere; }
+    .msg.user {
+      align-self: flex-end; background: var(--accent); color: #fff;
+      padding: 10px 14px; border-radius: 18px 18px 4px 18px; white-space: pre-wrap;
+    }
+    @media (prefers-color-scheme: dark) { .msg.user { color: #1b1917; } }
+    .msg.user img { display: block; max-width: 200px; max-height: 200px; border-radius: 10px; margin-bottom: 6px; }
+    .msg.claude { align-self: flex-start; max-width: 100%; width: 100%; }
+    .msg.claude .md > :first-child { margin-top: 0; }
+    .msg.claude .md > :last-child { margin-bottom: 0; }
+    .md p, .md ul, .md ol { margin: 0 0 10px; }
+    .md ul, .md ol { padding-left: 22px; }
+    .md li { margin: 3px 0; }
+    .md h3, .md h4 { font-size: 1rem; margin: 14px 0 6px; }
+    .md code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-size: .9em; }
+    .md pre { background: var(--surface-2); padding: 10px; border-radius: 10px; overflow-x: auto; }
+    .md pre code { background: none; padding: 0; }
+    .md a { color: var(--accent); }
+    .chip {
+      display: inline-block; font-size: .82rem; font-weight: 600; margin: 2px 0 8px;
+      padding: 5px 10px; border-radius: 999px; background: var(--good-soft); color: var(--good);
+    }
+    .chip.web { background: var(--surface-2); color: var(--muted); }
+    .chip.err { background: var(--bad-soft); color: var(--bad); }
+    .chips { display: flex; flex-wrap: wrap; gap: 0 6px; }
+    .status { color: var(--muted); font-size: .9rem; font-style: italic; }
+    .status::after { content: ''; animation: dots 1.2s steps(4) infinite; }
+    @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+    .error-note { color: var(--bad); font-size: .9rem; }
+
+    .welcome { text-align: center; padding: 24px 8px 8px; }
+    .welcome .big { font-size: 2.4rem; }
+    .suggestions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+    .suggestions button {
+      font: inherit; text-align: left; padding: 12px 14px; border-radius: 14px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    }
+
+    .composer {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+      background: var(--bg); border-top: 1px solid var(--border);
+      padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px);
+    }
+    .composer .inner { max-width: 640px; margin: 0 auto; }
+    .composer .row { align-items: flex-end; }
+    .composer textarea {
+      min-height: 44px; max-height: 160px; resize: none; border-radius: 22px; padding: 11px 16px; line-height: 1.35;
+    }
+    .round {
+      width: 44px; height: 44px; border-radius: 50%; border: 0; flex-shrink: 0; cursor: pointer;
+      font-size: 1.2rem; display: flex; align-items: center; justify-content: center;
+    }
+    .round.send { background: var(--accent); color: #fff; }
+    .round.send:disabled { opacity: .4; }
+    .round.photo { background: var(--surface-2); color: var(--text); }
+    .attached { display: flex; gap: 8px; margin-bottom: 8px; }
+    .attached div { position: relative; }
+    .attached img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; }
+    .attached button {
+      position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%;
+      border: 0; background: var(--text); color: var(--bg); font-size: .7rem; cursor: pointer;
+    }
+
+    .setup ol { padding-left: 20px; margin: 8px 0 0; }
+    .setup li { margin: 6px 0; }
+    .setup a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <a class="back" href="../">‹ Home</a>
+    <h1>Ask Compass</h1>
+    <button class="icon hidden" id="new-chat" aria-label="New chat" title="New chat">✎</button>
+    <button class="icon hidden" id="open-settings" aria-label="Settings" title="Settings">⚙︎</button>
+  </header>
+
+  <main>
+    <!-- Shown until an API key is saved -->
+    <section id="setup" class="hidden">
+      <div class="card setup">
+        <h2 style="margin-top:0">Connect Claude</h2>
+        <p class="muted small" style="margin:0">Compass talks to Claude using an API key from Anthropic. It's set up once and stays on this phone only.</p>
+        <ol class="small">
+          <li>Go to <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> and sign in (or create an account).</li>
+          <li>Add a payment method under <strong>Billing</strong>. Use is billed separately from a Claude subscription, usually a few cents per chat.</li>
+          <li>Under <strong>API keys</strong>, create a key and copy it.</li>
+          <li>Paste it below.</li>
+        </ol>
+        <form id="key-form">
+          <label for="key-input">API key</label>
+          <input id="key-input" type="password" autocomplete="off" placeholder="sk-ant-…" required>
+          <button class="btn block" style="margin-top:12px" id="key-save">Connect</button>
+          <p class="small" id="key-msg" style="min-height:1.4em;margin:8px 0 0"></p>
+        </form>
+      </div>
+    </section>
+
+    <section id="chat" class="hidden">
+      <div id="thread"></div>
+    </section>
+  </main>
+
+  <div class="composer hidden" id="composer">
+    <div class="inner">
+      <div class="attached hidden" id="attached"></div>
+      <form class="row" id="send-form">
+        <button type="button" class="round photo" id="photo-btn" aria-label="Add a photo">📷</button>
+        <textarea class="grow" id="input" rows="1" placeholder="Ask anything…" enterkeyhint="send"></textarea>
+        <button class="round send" id="send-btn" aria-label="Send">↑</button>
+      </form>
+      <input type="file" id="photo-input" accept="image/*" multiple class="hidden">
+    </div>
+  </div>
+
+  <dialog id="settings">
+    <h3>Settings</h3>
+    <p class="muted small">Claude is connected with an API key saved on this phone. Usage is billed to that key's account at console.anthropic.com.</p>
+    <label for="new-key">Replace API key</label>
+    <input id="new-key" type="password" autocomplete="off" placeholder="sk-ant-…">
+    <p class="small" id="settings-msg" style="min-height:1.4em;margin:6px 0 0"></p>
+    <div class="row" style="margin-top:6px">
+      <button class="btn grow" id="replace-key">Save new key</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn secondary grow hidden" id="web-on">Turn web search back on</button>
+    </div>
+    <div class="actions">
+      <button class="btn danger" id="remove-key" style="margin-right:auto">Disconnect</button>
+      <button class="btn secondary" id="close-settings">Done</button>
+    </div>
+  </dialog>
+
+  <script src="../assets/common.js"></script>
+  <script>
+    const SUGGESTIONS = [
+      'Plan dinners for this week',
+      'What can I make tonight with chicken and rice?',
+      'Add milk, eggs and bread to the grocery list',
+      'How is my budget looking this month?',
+      'Make me a weekly cleaning routine',
+    ];
+
+    const thread = document.getElementById('thread');
+    const input = document.getElementById('input');
+    const sendBtn = document.getElementById('send-btn');
+
+    let convo = Store.get('chat', []);
+    let photos = [];       // image blocks waiting to be sent
+    let running = null;    // AbortController while Claude is replying
+    let live = { text: '', status: '' };
+
+    // ---- Tiny, safe markdown: escape first, then add formatting ----
+    function inline(s) {
+      return s
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    }
+
+    function markdown(src) {
+      const lines = esc(src).split('\n');
+      let html = '';
+      let list = null;
+      let para = [];
+      const flushPara = () => { if (para.length) html += `<p>${inline(para.join('<br>'))}</p>`; para = []; };
+      const closeList = () => { if (list) html += `</${list}>`; list = null; };
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.startsWith('```')) {
+          flushPara(); closeList();
+          const code = [];
+          while (++i < lines.length && !lines[i].startsWith('```')) code.push(lines[i]);
+          html += `<pre><code>${code.join('\n')}</code></pre>`;
+          continue;
+        }
+        const heading = line.match(/^#{1,6}\s+(.*)/);
+        const bullet = line.match(/^\s*(?:[-*•])\s+(.*)/);
+        const numbered = line.match(/^\s*\d+[.)]\s+(.*)/);
+        if (heading) { flushPara(); closeList(); html += `<h4>${inline(heading[1])}</h4>`; }
+        else if (bullet || numbered) {
+          flushPara();
+          const type = bullet ? 'ul' : 'ol';
+          if (list !== type) { closeList(); html += `<${type}>`; list = type; }
+          html += `<li>${inline((bullet || numbered)[1])}</li>`;
+        } else if (!line.trim()) { flushPara(); closeList(); }
+        else { closeList(); para.push(line); }
+      }
+      flushPara(); closeList();
+      return html;
+    }
+
+    // ---- Rendering ----
+    const isStamp = b => b.type === 'text' && b.text.startsWith('[Right now it is');
+    const isRealUser = m => m.role === 'user' && m.content.some(b => b.type !== 'tool_result');
+
+    function renderThread(AI) {
+      if (!convo.length && !running) {
+        thread.innerHTML = `
+          <div class="welcome">
+            <div class="big">✨</div>
+            <h2 style="margin:6px 0 4px">Hi! What can I help with?</h2>
+            <p class="muted small" style="margin:0">Ask me anything, or have me plan meals, add groceries, log spending, or track chores and habits for you.</p>
+            <div class="suggestions">${SUGGESTIONS.map(s => `<button type="button">${esc(s)}</button>`).join('')}</div>
+          </div>`;
+        return;
+      }
+
+      const failed = new Set();
+      convo.forEach(m => m.role === 'user' && m.content.forEach(b => b.type === 'tool_result' && b.is_error && failed.add(b.tool_use_id)));
+
+      let html = '';
+      let claude = null; // open Claude bubble's HTML parts
+      const closeClaude = () => { if (claude) html += `<div class="msg claude">${claude.join('')}</div>`; claude = null; };
+
+      for (const m of convo) {
+        if (isRealUser(m)) {
+          closeClaude();
+          const imgs = m.content.filter(b => b.type === 'image')
+            .map(b => `<img src="data:${b.source.media_type};base64,${b.source.data}" alt="Photo">`).join('');
+          const text = m.content.filter(b => b.type === 'text' && !isStamp(b)).map(b => b.text).join('\n');
+          html += `<div class="msg user">${imgs}${esc(text)}</div>`;
+        } else if (m.role === 'assistant') {
+          claude ||= [];
+          for (const b of m.content) {
+            if (b.type === 'text' && b.text.trim()) claude.push(`<div class="md">${markdown(b.text)}</div>`);
+            else if (b.type === 'tool_use' || b.type === 'server_tool_use') {
+              const label = AI?.describeToolUse(b);
+              if (!label) continue;
+              const cls = failed.has(b.id) ? 'err' : b.type === 'server_tool_use' ? 'web' : '';
+              claude.push(`<div class="chips"><span class="chip ${cls}">${esc(failed.has(b.id) ? '⚠️ Couldn\'t finish: ' + label : label)}</span></div>`);
+            }
+          }
+        }
+      }
+
+      if (running) {
+        claude ||= [];
+        if (live.text) claude.push(`<div class="md">${markdown(live.text)}</div>`);
+        else claude.push(`<div class="status">${esc(live.status || 'Thinking')}</div>`);
+      }
+      closeClaude();
+      thread.innerHTML = html;
+    }
+
+    let AIModule = null;
+    let frame = 0;
+    function redraw() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const nearBottom = innerHeight + scrollY >= document.body.scrollHeight - 160;
+        renderThread(AIModule);
+        if (nearBottom || running) scrollTo(0, document.body.scrollHeight);
+      });
+    }
+
+    function save() {
+      try {
+        localStorage.setItem('compass:chat', JSON.stringify(convo));
+      } catch {
+        // Too big to keep (usually lots of photos). The chat still works until the page closes.
+        console.warn('Chat too large to save; start a new chat soon.');
+      }
+    }
+
+    // ---- Sending ----
+    function updateSendState() {
+      sendBtn.textContent = running ? '■' : '↑';
+      sendBtn.setAttribute('aria-label', running ? 'Stop' : 'Send');
+      sendBtn.disabled = !running && !input.value.trim() && !photos.length;
+    }
+
+    async function send(text) {
+      if (running) return;
+      text = text.trim();
+      if (!text && !photos.length) return;
+
+      const AI = await getAI();
+      AIModule = AI;
+      const userMessage = {
+        role: 'user',
+        content: [{ type: 'text', text: AI.stampLine() }, ...photos, ...(text ? [{ type: 'text', text }] : [])],
+      };
+      convo.push(userMessage);
+      input.value = '';
+      autosize();
+      photos = [];
+      renderAttached();
+
+      running = new AbortController();
+      live = { text: '', status: 'Thinking' };
+      updateSendState();
+      redraw();
+
+      try {
+        await AI.chat(convo, {
+          signal: running.signal,
+          onText: delta => { live.text += delta; live.status = ''; redraw(); },
+          onStatus: label => { live.status = label.replace(/…$/, ''); if (!live.text) redraw(); },
+          onStep: () => { live = { text: '', status: 'Thinking' }; save(); redraw(); },
+        });
+      } catch (err) {
+        if (err.friendly !== 'Stopped.') {
+          // A declined turn is removed from the chat; give the words back.
+          if (!convo.includes(userMessage)) { input.value = text; autosize(); }
+          showError(err.friendly || 'Something went wrong.');
+        }
+        console.error(err);
+      } finally {
+        running = null;
+        save();
+        updateSendState();
+        redraw();
+      }
+    }
+
+    function showError(message) {
+      setTimeout(() => {
+        thread.insertAdjacentHTML('beforeend', `<p class="error-note">⚠️ ${esc(message)}</p>`);
+        scrollTo(0, document.body.scrollHeight);
+      }, 50);
+    }
+
+    document.getElementById('send-form').addEventListener('submit', e => {
+      e.preventDefault();
+      if (running) running.abort();
+      else send(input.value);
+    });
+
+    input.addEventListener('keydown', e => {
+      // Enter sends on a computer; on phones the keyboard's return adds a line.
+      if (e.key === 'Enter' && !e.shiftKey && matchMedia('(hover: hover)').matches) {
+        e.preventDefault();
+        send(input.value);
+      }
+    });
+
+    function autosize() {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight + 2, 160) + 'px';
+      updateSendState();
+    }
+    input.addEventListener('input', autosize);
+
+    thread.addEventListener('click', e => {
+      const b = e.target.closest('.suggestions button');
+      if (b) send(b.textContent);
+    });
+
+    // ---- Photos ----
+    const photoInput = document.getElementById('photo-input');
+    document.getElementById('photo-btn').addEventListener('click', () => photoInput.click());
+    photoInput.addEventListener('change', async () => {
+      const AI = await getAI();
+      for (const file of [...photoInput.files].slice(0, 4 - photos.length)) {
+        try { photos.push(await AI.photoBlock(file)); } catch { alert('Couldn\'t read that photo.'); }
+      }
+      photoInput.value = '';
+      renderAttached();
+      updateSendState();
+    });
+
+    function renderAttached() {
+      const box = document.getElementById('attached');
+      box.classList.toggle('hidden', !photos.length);
+      box.innerHTML = photos.map((p, i) => `
+        <div><img src="data:${p.source.media_type};base64,${p.source.data}" alt=""><button type="button" data-i="${i}" aria-label="Remove">✕</button></div>`).join('');
+    }
+    document.getElementById('attached').addEventListener('click', e => {
+      const b = e.target.closest('button[data-i]');
+      if (!b) return;
+      photos.splice(Number(b.dataset.i), 1);
+      renderAttached();
+      updateSendState();
+    });
+
+    // ---- New chat ----
+    document.getElementById('new-chat').addEventListener('click', () => {
+      if (running) return;
+      if (convo.length && !confirm('Start a new chat? This one will be cleared.')) return;
+      convo = [];
+      save();
+      redraw();
+      input.focus();
+    });
+
+    // ---- Setup and settings ----
+    function showMode() {
+      const ready = hasAIKey();
+      document.getElementById('setup').classList.toggle('hidden', ready);
+      document.getElementById('chat').classList.toggle('hidden', !ready);
+      document.getElementById('composer').classList.toggle('hidden', !ready);
+      document.getElementById('new-chat').classList.toggle('hidden', !ready);
+      document.getElementById('open-settings').classList.toggle('hidden', !ready);
+      if (ready) {
+        getAI().then(AI => { AIModule = AI; redraw(); });
+        redraw();
+      }
+    }
+
+    async function checkAndSaveKey(key, msgEl, button) {
+      msgEl.style.color = 'var(--muted)';
+      msgEl.textContent = 'Checking the key…';
+      button.disabled = true;
+      try {
+        const AI = await getAI();
+        await AI.testKey(key);
+        AI.setKey(key);
+        msgEl.style.color = 'var(--good)';
+        msgEl.textContent = 'Connected ✓';
+        return true;
+      } catch (err) {
+        msgEl.style.color = 'var(--bad)';
+        msgEl.textContent = err.friendly || 'That key didn\'t work.';
+        return false;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    document.getElementById('key-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const ok = await checkAndSaveKey(document.getElementById('key-input').value,
+        document.getElementById('key-msg'), document.getElementById('key-save'));
+      if (ok) setTimeout(showMode, 600);
+    });
+
+    const settings = document.getElementById('settings');
+    document.getElementById('open-settings').addEventListener('click', () => {
+      document.getElementById('new-key').value = '';
+      document.getElementById('settings-msg').textContent = '';
+      document.getElementById('web-on').classList.toggle('hidden', localStorage.getItem('compass-secret:noWebTools') !== '1');
+      settings.showModal();
+    });
+    document.getElementById('close-settings').addEventListener('click', () => settings.close());
+    document.getElementById('replace-key').addEventListener('click', e => {
+      const key = document.getElementById('new-key').value;
+      if (key.trim()) checkAndSaveKey(key, document.getElementById('settings-msg'), e.target);
+    });
+    document.getElementById('web-on').addEventListener('click', e => {
+      localStorage.removeItem('compass-secret:noWebTools');
+      e.target.classList.add('hidden');
+    });
+    document.getElementById('remove-key').addEventListener('click', async () => {
+      if (!confirm('Disconnect Claude from this phone? Your apps and data stay as they are.')) return;
+      (await getAI()).setKey('');
+      settings.close();
+      showMode();
+    });
+
+    // Opening with ?q=… (from a ✨ link elsewhere) starts that question.
+    showMode();
+    const q = new URLSearchParams(location.search).get('q');
+    if (q && hasAIKey()) {
+      window.history.replaceState(null, '', location.pathname);
+      send(q);
+    }
+    updateSendState();
+  </script>
+</body>
+</html>
