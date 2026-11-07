@@ -72,9 +72,13 @@
         <span class="emoji">🌱</span><strong>Habits</strong>
         <span class="status" id="s-habits">Daily check-ins</span>
       </a>
-      <a class="app wide" href="pantry/">
+      <a class="app" href="pantry/">
         <span class="emoji">🥫</span><strong>Pantry</strong>
         <span class="status" id="s-pantry">What's in the fridge</span>
+      </a>
+      <a class="app" href="shifts/">
+        <span class="emoji">🚒</span><strong>Shifts</strong>
+        <span class="status" id="s-shifts">Who's working when</span>
       </a>
     </div>
 
@@ -124,6 +128,15 @@
       const soon = pantry.filter(i => i.useSoon).length;
       document.getElementById('s-pantry').textContent =
         `${pantry.length} item${pantry.length === 1 ? '' : 's'}` + (soon ? ` · ${soon} to use soon` : '');
+    }
+
+    const rot = getShifts();
+    if (rot) {
+      const who = shiftWho(rot);
+      const next = nextShift(addDays(today, 1), rot);
+      document.getElementById('s-shifts').textContent = shiftStatus(today, rot) === 'on'
+        ? `${who ? who + ' is on' : 'On shift'} today`
+        : next ? `Next shift: ${friendlyDate(next)}` : 'No shifts coming up';
     }
 
     const month = today.slice(0, 7);

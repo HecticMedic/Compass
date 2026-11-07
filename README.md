@@ -1,6 +1,6 @@
 # Compass
 
-Five small everyday apps in one home-screen web app, with Claude built in. There are no accounts and no server. Everything is saved on the phone it's used on.
+Six small everyday apps in one home-screen web app, with Claude built in. There are no accounts and no server. Everything is saved on the phone it's used on.
 
 | App | What it does |
 | --- | --- |
@@ -9,6 +9,7 @@ Five small everyday apps in one home-screen web app, with Claude built in. There
 | 💳 **Budget** | Log spending by category, set monthly limits, and see what's left this month. |
 | 🌱 **Habits** | Daily check-ins with counters (e.g. 8 glasses of water), streaks and a 7-day history. |
 | 🥫 **Pantry** | Keep track of what's in the fridge, freezer and pantry. Snap a photo and Claude updates the list, then suggests recipes from what you have. |
+| 🚒 **Shifts** | The work rotation (24/48, 48/96, Kelly, 3-in-9, 12-hour patterns or a custom cycle) on a month calendar. Tap a day to mark a trade, overtime or time off. Add the next 6 months to the phone's calendar, or share the rotation to another phone with a link. Meals shows 🚒 on shift days. |
 
 ## ✨ Claude in Compass
 
@@ -20,6 +21,7 @@ Once connected, Claude works inside the apps, so there's no separate Claude app 
   - Chores: suggest chores the home might be missing.
   - Budget: quick-add from plain words ("Target 42.10 household"), and a friendly summary of the month.
   - Habits: a short reflection on the last two weeks.
+  - Shifts: Ask Compass knows who's on shift, so meal plans and suggestions work around it ("I picked up Saturday" updates the calendar). ✨ Fill dinners keeps shift nights easy.
   - Pantry: photograph the fridge, freezer or pantry to update what you have, and get recipe ideas that use it up (one tap to plan it for tonight or add missing items to groceries).
 
 ### Setting it up (about 3 minutes, once)

@@ -136,7 +136,7 @@
         const name = parseDate(date).toLocaleDateString(undefined, { weekday: 'long' });
         return `
           <div class="card day ${date === today ? 'today' : ''}">
-            <h3>${name} <span class="muted small">${fmt(date)}</span></h3>
+            <h3>${name} <span class="muted small">${fmt(date)}</span>${shiftStatus(date) === 'on' ? ` <span class="pill accent">🚒 ${esc(shiftWho() || 'Shift')}</span>` : ''}</h3>
             ${SLOTS.map(slot => `
               <div class="slot">
                 <span>${slot[0].toUpperCase() + slot.slice(1)}</span>
@@ -326,6 +326,7 @@
         const meals = await AI.suggestMeals({
           slots, wishes,
           recent,
+          away: getShifts() ? { who: shiftWho() || 'one of them', dates: slots.map(s => s.date).filter(d => shiftStatus(d) === 'on') } : null,
           recipes: recipes.map(r => r.name),
         });
         for (const { date, slot, meal } of meals) plan[date] = { ...(plan[date] || {}), [slot]: meal.trim() };
