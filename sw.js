@@ -1,6 +1,6 @@
 // Offline support: serve from cache, refresh the cache in the background.
 // Bump VERSION when files change so phones pick up the new copy.
-const VERSION = 'compass-v5';
+const VERSION = 'compass-v6';
 const FILES = [
   './',
   'index.html',

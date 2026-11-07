@@ -119,6 +119,11 @@
         <button class="btn block" style="margin-top:16px">Save rotation</button>
         <button class="btn danger block hidden" type="button" id="remove" style="margin-top:8px">Remove rotation</button>
       </form>
+      <div class="card">
+        <strong>Got a shift link from another phone?</strong>
+        <p class="small muted" style="margin:4px 0 10px">Copy the link, then tap below to paste it here.</p>
+        <button class="btn secondary block" type="button" id="paste">📋 Paste shift link</button>
+      </div>
     </section>
   </main>
 
@@ -137,10 +142,11 @@
     const save = () => { Store.set('shifts', rot); rot = getShifts(); };
 
     // ---- Import from a share link (#share=...) ----
-    (function importShare() {
-      const m = location.hash.match(/share=([^&]+)/);
-      if (!m) return;
-      history.replaceState(null, '', location.pathname);
+    // On iPhone a tapped link opens in Safari, which has separate storage from
+    // the home-screen app, so the link can also be pasted in here.
+    function importShare(text) {
+      const m = String(text).match(/share=([A-Za-z0-9_-]+)/);
+      if (!m) return alert('That doesn\'t look like a shift link. Copy the whole link and try again.');
       try {
         const json = decodeURIComponent(escape(atob(m[1].replace(/-/g, '+').replace(/_/g, '/'))));
         const s = JSON.parse(json);
@@ -158,7 +164,12 @@
       } catch {
         alert('That share link didn\'t work. Ask for a fresh one.');
       }
-    })();
+    }
+    if (/share=/.test(location.hash)) {
+      const hash = location.hash;
+      history.replaceState(null, '', location.pathname);
+      importShare(hash);
+    }
 
     // ---- Calendar ----
     let month = isoDate().slice(0, 7);
@@ -306,10 +317,10 @@
       const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
       const url = new URL('#share=' + b64, location.href.split('#')[0]).href;
       if (navigator.share) {
-        try { await navigator.share({ title: 'Shift rotation', url }); return; } catch (err) { if (err.name === 'AbortError') return; }
+        try { await navigator.share({ title: 'Shift rotation', text: 'Copy this link, then in Compass open Shifts → Rotation → Paste shift link.', url }); return; } catch (err) { if (err.name === 'AbortError') return; }
       }
-      try { await navigator.clipboard.writeText(url); alert('Link copied. Open it on the other phone.'); }
-      catch { prompt('Copy this link and open it on the other phone:', url); }
+      try { await navigator.clipboard.writeText(url); alert('Link copied. On the other phone, copy it and open Compass → Shifts → Rotation → Paste shift link.'); }
+      catch { prompt('Copy this link. On the other phone, open Compass → Shifts → Rotation → Paste shift link:', url); }
     });
 
     // ---- Rotation setup ----
@@ -399,6 +410,15 @@
       rot = null;
       fillSetup();
       showTab('cal');
+    });
+
+    document.getElementById('paste').addEventListener('click', async () => {
+      let text = '';
+      try { text = await navigator.clipboard.readText(); } catch {}
+      if (!/share=/.test(text)) text = prompt('Paste the shift link here:', '') || '';
+      if (!text.trim()) return;
+      importShare(text);
+      if (getShifts()) { rot = getShifts(); showTab('cal'); }
     });
 
     const showTab = setupTabs(tab => { if (tab === 'cal') renderCal(); else fillSetup(); });
