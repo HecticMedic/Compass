@@ -95,6 +95,64 @@ function nextDue(repeat, from) {
   }
 }
 
+// ---- Shifts ----
+// One person's work rotation: a repeating on/off cycle counted from an anchor
+// date, plus one-off changes (picked-up shifts, trades, leave). A shift is
+// filed under the date it starts.
+const SHIFT_PRESETS = {
+  '24-48': { label: '24 on / 48 off', cycle: [1, 0, 0], hours: 24 },
+  '48-96': { label: '48 on / 96 off', cycle: [1, 1, 0, 0, 0, 0], hours: 24 },
+  'kelly': { label: 'Kelly (24/48, every 7th shift off)', cycle: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0], hours: 24 },
+  'cal': { label: '3 in 9 (on-off-on-off-on, 4 off)', cycle: [1, 0, 1, 0, 1, 0, 0, 0, 0], hours: 24 },
+  '24-72': { label: '24 on / 72 off', cycle: [1, 0, 0, 0], hours: 24 },
+  '4-4': { label: '4 on / 4 off (12s)', cycle: [1, 1, 1, 1, 0, 0, 0, 0], hours: 12 },
+  'pitman': { label: '2-2-3 Pitman (12s)', cycle: [1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0], hours: 12 },
+};
+
+function getShifts() {
+  const s = Store.get('shifts', null);
+  return s && Array.isArray(s.cycle) && s.cycle.length && s.anchor ? s : null;
+}
+
+// 'on' or 'off' for a date, or null when no rotation is set up.
+function shiftStatus(date, s = getShifts()) {
+  if (!s) return null;
+  const o = s.overrides?.[date];
+  if (o === 'on' || o === 'off') return o;
+  const n = s.cycle.length;
+  return s.cycle[((daysBetween(s.anchor, date) % n) + n) % n] ? 'on' : 'off';
+}
+
+function scheduledShift(date, s = getShifts()) {
+  if (!s) return false;
+  const n = s.cycle.length;
+  return !!s.cycle[((daysBetween(s.anchor, date) % n) + n) % n];
+}
+
+function nextShift(from = isoDate(), s = getShifts()) {
+  if (!s) return null;
+  for (let i = 0; i < 400; i++) {
+    const d = addDays(from, i);
+    if (shiftStatus(d, s) === 'on') return d;
+  }
+  return null;
+}
+
+// "7:00 AM – 7:00 AM" style label for a shift that starts on `date`.
+function shiftTimes(s = getShifts(), date = isoDate()) {
+  if (!s) return '';
+  const [h, m] = (s.start || '07:00').split(':').map(Number);
+  const start = parseDate(date);
+  start.setHours(h, m);
+  const end = new Date(start.getTime() + (s.hours || 24) * 3600000);
+  const t = d => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return `${t(start)} – ${t(end)}`;
+}
+
+function shiftWho(s = getShifts()) {
+  return s?.name?.trim() || '';
+}
+
 // ---- Claude ----
 // The API key lives outside the "compass:" namespace so backups never include it.
 const AI_KEY = 'compass-secret:apiKey';

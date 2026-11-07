@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="compass-root" content="../">
+  <meta name="theme-color" content="#faf7f2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="../manifest.webmanifest">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icon-180.png">
+  <link rel="stylesheet" href="../assets/style.css">
+  <title>Shifts</title>
+  <style>
+    .status { font-size: 1.05rem; }
+    .status strong { display: block; font-size: 1.2rem; margin-bottom: 2px; }
+    .month-nav { display: flex; align-items: center; gap: 8px; margin: 14px 0 8px; }
+    .month-nav h2 { flex: 1; text-align: center; margin: 0; }
+    .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .cal .dow { text-align: center; font-size: .75rem; font-weight: 600; color: var(--muted); padding: 2px 0; }
+    .cal button {
+      aspect-ratio: 1; border: 1px solid var(--border); border-radius: 10px;
+      background: var(--surface); color: var(--text); font: inherit; font-weight: 600;
+      cursor: pointer; position: relative; padding: 0; min-width: 0;
+    }
+    .cal button.out { opacity: .35; }
+    .cal button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .cal button.today { outline: 2px solid var(--text); outline-offset: 1px; }
+    .cal button.extra::after, .cal button.dropped::after {
+      position: absolute; top: 1px; right: 4px; font-size: .7rem;
+    }
+    .cal button.extra::after { content: '★'; }
+    .cal button.dropped { text-decoration: line-through; color: var(--muted); border-style: dashed; }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 4px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .sw { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--border); display: inline-block; }
+    .sw.on { background: var(--accent); border-color: var(--accent); }
+    .cycle { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .cycle button {
+      width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--muted); font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer;
+    }
+    .cycle button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 6px; }
+    .strip div { text-align: center; font-size: .75rem; border-radius: 8px; padding: 6px 0; background: var(--surface-2); color: var(--muted); }
+    .strip div.on { background: var(--accent); color: #fff; font-weight: 600; }
+    .choice { display: block; width: 100%; text-align: left; margin-top: 8px; }
+    .choice.selected { outline: 2px solid var(--accent); }
+    @media (prefers-color-scheme: dark) {
+      .cal button.on, .cycle button.on, .strip div.on { color: #1b1917; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top"><a class="back" href="../">‹ Home</a><h1>Shifts</h1></header>
+  <main>
+    <div class="tabs">
+      <button data-tab="cal">Calendar</button>
+      <button data-tab="setup">Rotation</button>
+    </div>
+
+    <section id="tab-cal">
+      <div id="no-rotation" class="empty hidden">
+        No rotation yet. Open <strong>Rotation</strong> to pick the shift pattern, or open a share link from the other phone.
+      </div>
+      <div id="cal-wrap" class="hidden">
+        <div class="card status" id="status"></div>
+        <div class="month-nav">
+          <button class="icon" id="prev" aria-label="Previous month">‹</button>
+          <h2 id="month-label"></h2>
+          <button class="icon" id="next" aria-label="Next month">›</button>
+        </div>
+        <div class="cal" id="cal"></div>
+        <div class="legend small muted">
+          <span><i class="sw on"></i> On shift</span>
+          <span>★ Picked up / traded in</span>
+          <span><s>12</s> Off (trade, leave, Kelly)</span>
+        </div>
+        <p class="small muted">Tap a day to mark a trade, overtime or time off.</p>
+        <button class="btn secondary block" id="ics" style="margin-top:8px">📅 Add next 6 months to phone calendar</button>
+        <button class="btn secondary block" id="share" style="margin-top:8px">🔗 Share this rotation with another phone</button>
+      </div>
+    </section>
+
+    <section id="tab-setup">
+      <form id="setup-form" class="card">
+        <label for="who">Whose shifts? (optional)</label>
+        <input id="who" placeholder="Name shown on the calendar" autocomplete="off">
+
+        <label for="preset">Rotation</label>
+        <select id="preset"></select>
+
+        <label>Cycle <span class="muted" id="cycle-len"></span></label>
+        <div class="cycle" id="cycle"></div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn secondary" type="button" id="cycle-minus">− day</button>
+          <button class="btn secondary" type="button" id="cycle-plus">+ day</button>
+          <span class="small muted grow">Tap a day to switch it on or off.</span>
+        </div>
+
+        <label for="anchor">Date of "day 1" in the cycle</label>
+        <input type="date" id="anchor" required>
+        <p class="small muted" style="margin:4px 0 0">Pick the first day of any upcoming or recent block of shifts.</p>
+
+        <div class="row">
+          <div class="grow">
+            <label for="start">Shift starts</label>
+            <input type="time" id="start" value="07:00" required>
+          </div>
+          <div class="grow">
+            <label for="hours">Length (hours)</label>
+            <input type="number" id="hours" min="1" max="96" value="24" required>
+          </div>
+        </div>
+
+        <label>Next two weeks</label>
+        <div class="strip" id="preview"></div>
+
+        <button class="btn block" style="margin-top:16px">Save rotation</button>
+        <button class="btn danger block hidden" type="button" id="remove" style="margin-top:8px">Remove rotation</button>
+      </form>
+    </section>
+  </main>
+
+  <dialog id="day-dialog">
+    <h3 id="day-title"></h3>
+    <p class="small muted" id="day-sub"></p>
+    <button class="btn secondary choice" data-set="auto" id="choice-auto"></button>
+    <button class="btn secondary choice" data-set="on">★ Working: picked up or traded in</button>
+    <button class="btn secondary choice" data-set="off">Off: traded away, leave, sick or Kelly day</button>
+    <div class="actions"><button class="btn secondary" id="day-close">Close</button></div>
+  </dialog>
+
+  <script src="../assets/common.js"></script>
+  <script>
+    let rot = getShifts();
+    const save = () => { Store.set('shifts', rot); rot = getShifts(); };
+
+    // ---- Import from a share link (#share=...) ----
+    (function importShare() {
+      const m = location.hash.match(/share=([^&]+)/);
+      if (!m) return;
+      history.replaceState(null, '', location.pathname);
+      try {
+        const json = decodeURIComponent(escape(atob(m[1].replace(/-/g, '+').replace(/_/g, '/'))));
+        const s = JSON.parse(json);
+        if (!Array.isArray(s.cycle) || !s.cycle.length || !/^\d{4}-\d{2}-\d{2}$/.test(s.anchor)) throw 0;
+        const who = s.name ? ` for ${s.name}` : '';
+        if (rot && !confirm(`Replace the rotation on this phone with the shared one${who}?`)) return;
+        rot = {
+          name: String(s.name || ''), cycle: s.cycle.map(x => x ? 1 : 0), anchor: s.anchor,
+          start: /^\d{2}:\d{2}$/.test(s.start) ? s.start : '07:00',
+          hours: Number(s.hours) || 24, preset: s.preset || 'custom',
+          overrides: s.overrides && typeof s.overrides === 'object' ? s.overrides : {},
+        };
+        save();
+        setTimeout(() => alert('Rotation added ✓'), 50);
+      } catch {
+        alert('That share link didn\'t work. Ask for a fresh one.');
+      }
+    })();
+
+    // ---- Calendar ----
+    let month = isoDate().slice(0, 7);
+    const fmtLong = d => parseDate(d).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+
+    function renderStatus() {
+      const today = isoDate();
+      const who = shiftWho(rot);
+      const el = document.getElementById('status');
+      // A shift that started yesterday may still be running this morning.
+      const [h, m] = (rot.start || '07:00').split(':').map(Number);
+      const yStart = parseDate(addDays(today, -1)); yStart.setHours(h, m);
+      const stillOn = shiftStatus(addDays(today, -1), rot) === 'on' &&
+        Date.now() < yStart.getTime() + (rot.hours || 24) * 3600000;
+      const next = nextShift(shiftStatus(today, rot) === 'on' ? addDays(today, 1) : today, rot);
+      if (shiftStatus(today, rot) === 'on') {
+        el.innerHTML = `<strong>🚒 ${who ? esc(who) + ' is on' : 'On shift'} today</strong>${shiftTimes(rot, today)}` +
+          (next ? `<div class="small muted">Then next: ${esc(friendlyDate(next))}</div>` : '');
+      } else if (stillOn) {
+        el.innerHTML = `<strong>🚒 ${who ? esc(who) + ' is finishing' : 'Finishing'} a shift</strong>Home after ${shiftTimes(rot, addDays(today, -1)).split('– ')[1]}` +
+          (next ? `<div class="small muted">Next shift: ${esc(friendlyDate(next))}</div>` : '');
+      } else {
+        el.innerHTML = `<strong>🏠 ${who ? esc(who) + ' is off' : 'Off'} today</strong>` +
+          (next ? `Next shift: ${esc(friendlyDate(next))}, ${shiftTimes(rot, next)}` : 'No shifts coming up');
+      }
+    }
+
+    function renderCal() {
+      rot = getShifts();
+      document.getElementById('no-rotation').classList.toggle('hidden', !!rot);
+      document.getElementById('cal-wrap').classList.toggle('hidden', !rot);
+      if (!rot) return;
+      renderStatus();
+
+      const first = parseDate(month + '-01');
+      document.getElementById('month-label').textContent =
+        first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      const offset = (first.getDay() + 6) % 7; // Monday first
+      const start = addDays(month + '-01', -offset);
+      const today = isoDate();
+      const dows = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      let html = dows.map(d => `<div class="dow">${d}</div>`).join('');
+      for (let i = 0; i < 42; i++) {
+        const d = addDays(start, i);
+        if (i === 35 && d.slice(0, 7) !== month) break;
+        const on = shiftStatus(d, rot) === 'on';
+        const sched = scheduledShift(d, rot);
+        const cls = [
+          on ? 'on' : '',
+          on && !sched ? 'extra' : '',
+          !on && sched ? 'dropped' : '',
+          d.slice(0, 7) !== month ? 'out' : '',
+          d === today ? 'today' : '',
+        ].join(' ');
+        html += `<button class="${cls}" data-date="${d}" aria-label="${fmtLong(d)}${on ? ', on shift' : ''}">${parseDate(d).getDate()}</button>`;
+      }
+      document.getElementById('cal').innerHTML = html;
+    }
+
+    const monthShift = n => {
+      const d = parseDate(month + '-01');
+      d.setMonth(d.getMonth() + n);
+      month = isoDate(d).slice(0, 7);
+      renderCal();
+    };
+    document.getElementById('prev').addEventListener('click', () => monthShift(-1));
+    document.getElementById('next').addEventListener('click', () => monthShift(1));
+
+    // ---- Day changes ----
+    const dayDialog = document.getElementById('day-dialog');
+    let dayDate = null;
+
+    document.getElementById('cal').addEventListener('click', e => {
+      const b = e.target.closest('button[data-date]');
+      if (!b) return;
+      dayDate = b.dataset.date;
+      const sched = scheduledShift(dayDate, rot);
+      const current = rot.overrides?.[dayDate] || 'auto';
+      document.getElementById('day-title').textContent = fmtLong(dayDate);
+      document.getElementById('day-sub').textContent = sched
+        ? `Scheduled shift, ${shiftTimes(rot, dayDate)}`
+        : 'Not a scheduled shift';
+      document.getElementById('choice-auto').textContent = sched ? 'As scheduled: working' : 'As scheduled: off';
+      dayDialog.querySelectorAll('.choice').forEach(c => c.classList.toggle('selected', c.dataset.set === current));
+      dayDialog.showModal();
+    });
+
+    dayDialog.addEventListener('click', e => {
+      const c = e.target.closest('.choice');
+      if (!c) return;
+      rot.overrides = rot.overrides || {};
+      const want = c.dataset.set;
+      const sched = scheduledShift(dayDate, rot);
+      // Only keep an override when it differs from the rotation.
+      if (want === 'auto' || (want === 'on') === sched) delete rot.overrides[dayDate];
+      else rot.overrides[dayDate] = want;
+      // Tidy up changes older than a year.
+      const cutoff = addDays(isoDate(), -365);
+      for (const d of Object.keys(rot.overrides)) if (d < cutoff) delete rot.overrides[d];
+      save();
+      dayDialog.close();
+      renderCal();
+    });
+    document.getElementById('day-close').addEventListener('click', () => dayDialog.close());
+
+    // ---- Phone calendar (.ics) ----
+    document.getElementById('ics').addEventListener('click', async () => {
+      const today = isoDate();
+      const [h, m] = (rot.start || '07:00').split(':').map(Number);
+      const stamp = d => d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') +
+        'T' + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0') + '00';
+      const who = shiftWho(rot);
+      const title = `🚒 ${who ? who + ' on shift' : 'On shift'}`;
+      const now = new Date();
+      const nowUTC = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+      const events = [];
+      for (let i = 0; i < 183; i++) {
+        const d = addDays(today, i);
+        if (shiftStatus(d, rot) !== 'on') continue;
+        const s = parseDate(d); s.setHours(h, m);
+        const e = new Date(s.getTime() + (rot.hours || 24) * 3600000);
+        events.push([
+          'BEGIN:VEVENT', `UID:shift-${d}@compass`, `DTSTAMP:${nowUTC}`,
+          `DTSTART:${stamp(s)}`, `DTEND:${stamp(e)}`, `SUMMARY:${title}`, 'TRANSP:OPAQUE', 'END:VEVENT',
+        ].join('\r\n'));
+      }
+      if (!events.length) return alert('No shifts in the next 6 months.');
+      const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Compass//Shifts//EN', 'CALSCALE:GREGORIAN', ...events, 'END:VCALENDAR'].join('\r\n');
+      const file = new File([ics], 'shifts.ics', { type: 'text/calendar' });
+      if (navigator.canShare?.({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: 'Shifts' }); return; } catch (err) { if (err.name === 'AbortError') return; }
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(file);
+      a.download = 'shifts.ics';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+
+    // ---- Share link ----
+    document.getElementById('share').addEventListener('click', async () => {
+      const today = isoDate();
+      const overrides = Object.fromEntries(Object.entries(rot.overrides || {}).filter(([d]) => d >= today));
+      const payload = { name: rot.name, cycle: rot.cycle, anchor: rot.anchor, start: rot.start, hours: rot.hours, preset: rot.preset, overrides };
+      const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const url = new URL('#share=' + b64, location.href.split('#')[0]).href;
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Shift rotation', url }); return; } catch (err) { if (err.name === 'AbortError') return; }
+      }
+      try { await navigator.clipboard.writeText(url); alert('Link copied. Open it on the other phone.'); }
+      catch { prompt('Copy this link and open it on the other phone:', url); }
+    });
+
+    // ---- Rotation setup ----
+    const presetSel = document.getElementById('preset');
+    presetSel.innerHTML = Object.entries(SHIFT_PRESETS)
+      .map(([k, p]) => `<option value="${k}">${esc(p.label)}</option>`).join('') +
+      '<option value="custom">Custom</option>';
+
+    let draft = [];
+
+    function renderCycle() {
+      document.getElementById('cycle').innerHTML = draft.map((on, i) =>
+        `<button type="button" class="${on ? 'on' : ''}" data-i="${i}">${on ? 'On' : 'Off'}<br>${i + 1}</button>`).join('');
+      document.getElementById('cycle-len').textContent = `(${draft.length} days, ${draft.filter(Boolean).length} on)`;
+      renderPreview();
+    }
+
+    function renderPreview() {
+      const anchor = document.getElementById('anchor').value;
+      const el = document.getElementById('preview');
+      if (!anchor || !draft.some(Boolean)) { el.innerHTML = ''; return; }
+      const tmp = { cycle: draft, anchor, overrides: {} };
+      const today = isoDate();
+      el.innerHTML = Array.from({ length: 14 }, (_, i) => {
+        const d = addDays(today, i);
+        const label = parseDate(d).toLocaleDateString(undefined, { weekday: 'narrow' }) + ' ' + parseDate(d).getDate();
+        return `<div class="${shiftStatus(d, tmp) === 'on' ? 'on' : ''}">${label}</div>`;
+      }).join('');
+    }
+
+    function fillSetup() {
+      const r = rot || { preset: '24-48', ...SHIFT_PRESETS['24-48'], anchor: isoDate(), start: '07:00' };
+      document.getElementById('who').value = r.name || '';
+      presetSel.value = r.preset && (SHIFT_PRESETS[r.preset] || r.preset === 'custom') ? r.preset : 'custom';
+      draft = [...r.cycle];
+      document.getElementById('anchor').value = r.anchor;
+      document.getElementById('start').value = r.start || '07:00';
+      document.getElementById('hours').value = r.hours || 24;
+      document.getElementById('remove').classList.toggle('hidden', !rot);
+      renderCycle();
+    }
+
+    presetSel.addEventListener('change', () => {
+      const p = SHIFT_PRESETS[presetSel.value];
+      if (!p) return;
+      draft = [...p.cycle];
+      document.getElementById('hours').value = p.hours;
+      renderCycle();
+    });
+    document.getElementById('cycle').addEventListener('click', e => {
+      const b = e.target.closest('button[data-i]');
+      if (!b) return;
+      draft[Number(b.dataset.i)] ^= 1;
+      presetSel.value = 'custom';
+      renderCycle();
+    });
+    document.getElementById('cycle-plus').addEventListener('click', () => {
+      if (draft.length >= 42) return;
+      draft.push(0); presetSel.value = 'custom'; renderCycle();
+    });
+    document.getElementById('cycle-minus').addEventListener('click', () => {
+      if (draft.length <= 2) return;
+      draft.pop(); presetSel.value = 'custom'; renderCycle();
+    });
+    document.getElementById('anchor').addEventListener('change', renderPreview);
+
+    document.getElementById('setup-form').addEventListener('submit', e => {
+      e.preventDefault();
+      if (!draft.some(Boolean)) return alert('Switch on at least one shift day in the cycle.');
+      const old = rot;
+      rot = {
+        name: document.getElementById('who').value.trim(),
+        preset: presetSel.value,
+        cycle: [...draft],
+        anchor: document.getElementById('anchor').value,
+        start: document.getElementById('start').value || '07:00',
+        hours: Math.min(96, Math.max(1, Number(document.getElementById('hours').value) || 24)),
+        overrides: old?.overrides || {},
+      };
+      save();
+      showTab('cal');
+    });
+
+    document.getElementById('remove').addEventListener('click', () => {
+      if (!confirm('Remove the rotation and all trades and time off?')) return;
+      localStorage.removeItem('compass:shifts');
+      rot = null;
+      fillSetup();
+      showTab('cal');
+    });
+
+    const showTab = setupTabs(tab => { if (tab === 'cal') renderCal(); else fillSetup(); });
+    if (!rot) showTab('setup');
+  </script>
+</body>
+</html>

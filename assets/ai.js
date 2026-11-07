@@ -117,7 +117,7 @@ async function streamText({ system, prompt, onText }) {
 
 const HELPER_SYSTEM = 'You help one family run their household through an app called Compass. Be practical, warm and brief. Use everyday words.';
 
-export async function suggestMeals({ slots, recipes, recent, wishes }) {
+export async function suggestMeals({ slots, recipes, recent, wishes, away }) {
   const schema = {
     type: 'object',
     additionalProperties: false,
@@ -145,6 +145,7 @@ export async function suggestMeals({ slots, recipes, recent, wishes }) {
 Saved recipes (prefer these, spelled exactly, so their ingredients reach the grocery list): ${JSON.stringify(recipes)}.
 Meals from the last couple of weeks (avoid repeating too often): ${JSON.stringify(recent)}.
 ${wishes ? `What they asked for: ${wishes}` : ''}
+${away?.dates?.length ? `${away.who} is away on a work shift on these dates, so those dinners are for one fewer person: keep them extra easy, or make something that leaves good leftovers to save for when they're home: ${JSON.stringify(away.dates)}.` : ''}
 Mix in new ideas too. Keep weeknight dinners easy.`,
   });
   const wanted = new Set(slots.map(s => `${s.date}|${s.slot}`));
@@ -337,12 +338,13 @@ export function habitReflection(data, onText) {
 
 const CHAT_SYSTEM = `You are Claude, built into Compass, a household app one family uses on their phone. You're talking with the person who runs it. Help with anything they ask, just as you would in the Claude app: questions, advice, ideas, writing, planning, recipes, research.
 
-Compass has five apps you can read and change with your tools:
+Compass has six apps you can read and change with your tools:
 - Meals: a weekly plan (breakfast, lunch, dinner per date), saved recipes with ingredients, and a grocery list.
 - Pantry: what food they have at home, by location (fridge, freezer, pantry), with rough amounts and a "use soon" flag.
 - Chores: household jobs with a repeat interval and next due date.
 - Budget: expenses by category with monthly limits.
 - Habits: daily habits with a target count per day and a log of check-ins.
+- Shifts: a partner's work rotation (e.g. firefighter/paramedic 24-hour shifts), with trades, overtime and time off. A shift is filed under the date it starts.
 
 How to work:
 - When they ask you to add, plan, log or change something, do it with the tools straight away, then confirm in a sentence. Don't ask permission for routine changes. For anything that deletes or overwrites a lot, check first.
@@ -351,6 +353,7 @@ How to work:
 - If they send a photo of the inside of their fridge, freezer or pantry, identify what's there and update the Pantry right away with update_pantry: replace_location set to that spot, since the photo shows what's there now (unless they say it's only part of it, then just add). Tell them briefly what changed, then suggest a few meals they could make from it, favoring things to use soon.
 - When they ask what to cook, check the Pantry first and favor what they already have. When they say they used something up, remove it from the Pantry and offer to add it to groceries.
 - If they send a photo of a receipt, recipe or list, read it and offer to add it to the right app.
+- When planning meals, chores or plans, check shifts too: on shift days that person is away (a 24-hour shift means away that night and back the next morning), so plan easy dinners or leftovers and avoid scheduling things that need both of them. When told about a trade, overtime or time off, update it with set_shift_day.
 - Use web search for anything current or that you're unsure of.
 
 Style: they're on a phone. Be warm, clear and brief. Use short paragraphs and simple lists. Avoid tables and long headings. Each message begins with the current date and time for your reference; don't repeat it back.`;
@@ -369,7 +372,7 @@ const TOOLS = {
       properties: {
         sections: {
           type: 'array',
-          items: { type: 'string', enum: ['meal_plan', 'recipes', 'groceries', 'pantry', 'chores', 'budget', 'habits'] },
+          items: { type: 'string', enum: ['meal_plan', 'recipes', 'groceries', 'pantry', 'chores', 'budget', 'habits', 'shifts'] },
         },
       },
       required: ['sections'],
@@ -407,6 +410,15 @@ const TOOLS = {
             last_14_days: Object.fromEntries(Array.from({ length: 14 }, (_, i) => addDays(today, -i))
               .map(d => [d, log[d]?.[h.id] || 0])),
           }));
+        } else if (s === 'shifts') {
+          const rot = getShifts();
+          out.shifts = rot ? {
+            whose: shiftWho(rot) || null,
+            start_time: rot.start, hours: rot.hours,
+            next_28_days_on_shift: Array.from({ length: 28 }, (_, i) => addDays(today, i))
+              .filter(d => shiftStatus(d, rot) === 'on'),
+            changes: Object.fromEntries(Object.entries(rot.overrides || {}).filter(([d]) => d >= addDays(today, -7)).sort()),
+          } : 'No rotation set up yet. It can be added in the Shifts app.';
         }
       }
       return out;
@@ -645,6 +657,30 @@ const TOOLS = {
       habits.push({ id: uid(), name: name.trim(), emoji: emoji || '⭐', target: Math.max(1, Math.min(99, target)), unit });
       Store.set('habits', habits);
       return { ok: true };
+    },
+  },
+
+  set_shift_day: {
+    description: 'Change one day in the Shifts calendar: "working" for a picked-up/overtime/traded-in shift, "off" for a traded-away shift, leave or a Kelly day, "as_scheduled" to undo a change.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: DATE,
+        status: { type: 'string', enum: ['working', 'off', 'as_scheduled'] },
+      },
+      required: ['date', 'status'],
+    },
+    label: ({ date, status }) => `🚒 ${friendlyDate(date)}: ${status === 'working' ? 'working' : status === 'off' ? 'off' : 'back to schedule'}`,
+    run({ date, status }) {
+      if (!isISODate(date)) throw new Error(`Bad date: ${date}`);
+      const rot = getShifts();
+      if (!rot) throw new Error('No rotation is set up. Ask them to set it up in the Shifts app first.');
+      rot.overrides = rot.overrides || {};
+      const sched = scheduledShift(date, rot);
+      if (status === 'as_scheduled' || (status === 'working') === sched) delete rot.overrides[date];
+      else rot.overrides[date] = status === 'working' ? 'on' : 'off';
+      Store.set('shifts', rot);
+      return { ok: true, on_shift: shiftStatus(date, rot) === 'on' };
     },
   },
 
