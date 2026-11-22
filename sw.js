@@ -1,6 +1,6 @@
 // Offline support: serve from cache, refresh the cache in the background.
 // Bump VERSION when files change so phones pick up the new copy.
-const VERSION = 'compass-v5';
+const VERSION = 'compass-v6';
 const FILES = [
   './',
   'index.html',
@@ -31,7 +31,8 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k))))
+      // Only clear Compass's own caches: other apps (Medic) share this github.io origin.
+      .then(keys => Promise.all(keys.filter(k => k.startsWith('compass-') && k !== VERSION).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
